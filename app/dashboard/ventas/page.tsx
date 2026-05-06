@@ -53,7 +53,7 @@ export default function VentasPage() {
       const nuevoEstado = nuevoSaldo === 0 ? 'pagado' : 'parcial';
       await supabase.from('ventas').update({ saldo_pendiente: nuevoSaldo, estado: nuevoEstado }).eq('id', ventaId);
       // actualizar saldo del cliente
-      await supabase.rpc('update_cliente_saldo' as any, { p_cliente_id: venta.cliente_id, p_monto: -monto }).catch(() => {});
+      try { await supabase.rpc('update_cliente_saldo' as any, { p_cliente_id: venta.cliente_id, p_monto: -monto }); } catch { /* ignorar */ }
     }
     loadVentas();
     setDetalle(null);
