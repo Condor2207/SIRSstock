@@ -192,7 +192,7 @@ export default function StockPage() {
                             <div className="flex items-center gap-2">
                               <span className={`font-bold text-base ${stockBajo ? 'text-red-500' : 'text-emerald-600'}`}>{formatNumber(r.stockTotal, 1)}</span>
                               <span className="text-xs text-gray-400">{r.unidad}</span>
-                              {stockBajo && <AlertTriangle className="w-4 h-4 text-yellow-500" title="Stock bajo mínimo" />}
+                              {stockBajo && <span title="Stock bajo mínimo"><AlertTriangle className="w-4 h-4 text-yellow-500" /></span>}
                             </div>
                             <div className="text-xs text-gray-400">mín: {r.stockMinimo}</div>
                           </td>
