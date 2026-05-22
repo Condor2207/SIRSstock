@@ -49,9 +49,19 @@ ALTER TABLE productos
   ADD COLUMN IF NOT EXISTS plazo_vencimiento_meses INTEGER NOT NULL DEFAULT 36,
   ADD COLUMN IF NOT EXISTS porcentaje_comision NUMERIC(6,2) NOT NULL DEFAULT 0;
 
-ALTER TABLE productos
-  ADD CONSTRAINT productos_clasificacion_check
-  CHECK (clasificacion IN ('MERCADERIA', 'MATERIA_PRIMA', 'INSUMO', 'SERVICIO'));
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1
+    FROM pg_constraint
+    WHERE conname = 'productos_clasificacion_check'
+      AND conrelid = 'productos'::regclass
+  ) THEN
+    ALTER TABLE productos
+      ADD CONSTRAINT productos_clasificacion_check
+      CHECK (clasificacion IN ('MERCADERIA', 'MATERIA_PRIMA', 'INSUMO', 'SERVICIO'));
+  END IF;
+END $$;
 
 CREATE UNIQUE INDEX IF NOT EXISTS productos_codigo_barras_unique
   ON productos (codigo_barras)
@@ -65,6 +75,9 @@ ALTER TABLE productos
 UPDATE productos
 SET codigo_interno = nextval('productos_codigo_interno_seq')
 WHERE codigo_interno IS NULL;
+
+ALTER TABLE productos
+  ALTER COLUMN codigo_interno SET NOT NULL;
 
 CREATE UNIQUE INDEX IF NOT EXISTS productos_codigo_interno_unique
   ON productos (codigo_interno);

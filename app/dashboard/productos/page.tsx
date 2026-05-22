@@ -47,7 +47,7 @@ export default function ProductosPage() {
     setCategorias(catRes.data as Categoria[] || []);
     setUnidades(uniRes.data || []);
     setLoading(false);
-  }, [supabase]);
+  }, []);
 
   useEffect(() => { loadData(); }, [loadData]);
 
@@ -56,7 +56,7 @@ export default function ProductosPage() {
     setForm({
       sku: '', nombre: '', descripcion: '', categoria_id: '',
       unidad_medida: 'und', precio_venta: '', precio_compra: '',
-      stock_minimo: '', control_lote: true, activo: true,
+      stock_minimo: '', control_lote: false, activo: true,
       clasificacion: 'MERCADERIA', codigo_barras: '',
       plazo_vencimiento_meses: '36', porcentaje_comision: '0',
     });

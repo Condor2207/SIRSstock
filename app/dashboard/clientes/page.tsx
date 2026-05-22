@@ -211,9 +211,9 @@ export default function ClientesPage() {
                   <input className="input" value={form.documento} onChange={e => setForm(f => ({ ...f, documento: e.target.value }))} placeholder={form.tipo_documento === 'RUC' ? '80002010-3' : 'Número de documento'} />
                 </div>
               </div>
-               {form.tipo_documento === 'RUC' && (
+              {form.tipo_documento === 'RUC' && (
                <p className="text-xs text-gray-500">Formato requerido: 6 a 8 dígitos, guion y dígito verificador.</p>
-               )}
+              )}
               <div>
                 <label className="label">Dirección</label>
                 <input className="input" value={form.direccion} onChange={e => setForm(f => ({ ...f, direccion: e.target.value }))} />

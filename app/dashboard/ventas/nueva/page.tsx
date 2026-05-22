@@ -80,7 +80,9 @@ export default function NuevaVentaPage() {
   }
 
   function buscarProductos(term: string) {
-    const facturables = productos.filter(p => p.clasificacion === 'MERCADERIA' || p.clasificacion === 'SERVICIO');
+    const facturables = productos.filter(p =>
+      p.clasificacion === 'SERVICIO' || (p.clasificacion === 'MERCADERIA' && p.stock_actual > 0)
+    );
     setBuscarProducto(term);
     if (!term) {
       setProductosFiltrados(facturables.slice(0, 12));
@@ -153,7 +155,7 @@ export default function NuevaVentaPage() {
     if (!clienteId) { toast.error('Seleccioná un cliente'); return; }
     if (items.length === 0) { toast.error('Agregá al menos un producto'); return; }
     if (condicionPago === 'credito' && total > creditoDisponible) {
-      toast(`⚠ Venta supera el límite de crédito. Disponible: ${formatCurrency(creditoDisponible)}`, { icon: '⚠️' });
+      toast(`Venta supera el límite de crédito. Disponible: ${formatCurrency(creditoDisponible)}`, { icon: '⚠️' });
     }
     // Validar stock
     for (const item of items) {
@@ -500,7 +502,7 @@ export default function NuevaVentaPage() {
             <div className="card p-5">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="section-title">Productos</h2>
-                <button onClick={() => { setMostrarBuscador(true); setProductosFiltrados(productos.filter(p => p.clasificacion === 'MERCADERIA' || p.clasificacion === 'SERVICIO').slice(0, 12)); }} className="btn-primary flex items-center gap-2 text-xs py-1.5">
+                <button onClick={() => { setMostrarBuscador(true); setProductosFiltrados(productos.filter(p => p.clasificacion === 'SERVICIO' || (p.clasificacion === 'MERCADERIA' && p.stock_actual > 0)).slice(0, 12)); }} className="btn-primary flex items-center gap-2 text-xs py-1.5">
                   <Plus className="w-3.5 h-3.5" /> Agregar producto
                 </button>
               </div>
