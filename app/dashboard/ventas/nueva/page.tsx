@@ -16,6 +16,7 @@ export default function NuevaVentaPage() {
 
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
+  const [condiciones, setCondiciones] = useState<Array<{ id: string; plazo_dias: number; cantidad_cuotas: number }>>([]);
   const [clienteId, setClienteId] = useState('');
   const [clienteSeleccionado, setClienteSeleccionado] = useState<Cliente | null>(null);
   const [items, setItems] = useState<NuevaVentaItem[]>([]);
@@ -38,15 +39,16 @@ export default function NuevaVentaPage() {
   }, []);
 
   async function loadData() {
-    const [clientesRes, productosRes] = await Promise.all([
+    const [clientesRes, productosRes, condicionesRes] = await Promise.all([
       supabase.from('clientes').select('*').eq('activo', true).order('nombre'),
       supabase.from('productos')
         .select('*, lotes(id, numero_lote, fecha_vencimiento, stock_actual)')
         .eq('activo', true)
-        .gt('stock_actual', 0)
         .order('nombre'),
+      supabase.from('condiciones_venta').select('id, plazo_dias, cantidad_cuotas').eq('activo', true),
     ]);
     setClientes(clientesRes.data as Cliente[] || []);
+    setCondiciones(condicionesRes.data || []);
     const prods = (productosRes.data || []) as Producto[];
     // Ordenar lotes por FEFO (fecha vencimiento más próxima primero)
     prods.forEach(p => {
@@ -65,31 +67,46 @@ export default function NuevaVentaPage() {
 
   function handleClienteChange(id: string) {
     setClienteId(id);
-    setClienteSeleccionado(clientes.find(c => c.id === id) || null);
+    const cliente = clientes.find(c => c.id === id) || null;
+    setClienteSeleccionado(cliente);
+    if (cliente?.condicion_venta_id) {
+      const condicion = condiciones.find(c => c.id === cliente.condicion_venta_id);
+      if (condicion) {
+        setCondicionPago(condicion.plazo_dias > 0 ? 'credito' : 'contado');
+        setPlazoDias(condicion.plazo_dias || 30);
+        setCantidadCuotas(condicion.cantidad_cuotas || 1);
+      }
+    }
   }
 
   function buscarProductos(term: string) {
+    const facturables = productos.filter(p => p.clasificacion === 'MERCADERIA' || p.clasificacion === 'SERVICIO');
     setBuscarProducto(term);
     if (!term) {
-      setProductosFiltrados(productos.slice(0, 12));
+      setProductosFiltrados(facturables.slice(0, 12));
       return;
     }
     setProductosFiltrados(
-      productos.filter(p =>
+      facturables.filter(p =>
         p.nombre.toLowerCase().includes(term.toLowerCase()) ||
-        p.sku.toLowerCase().includes(term.toLowerCase())
+        p.sku.toLowerCase().includes(term.toLowerCase()) ||
+        (p.codigo_barras || '').includes(term)
       ).slice(0, 12)
     );
   }
 
   function agregarProducto(producto: Producto) {
+    if (!(producto.clasificacion === 'MERCADERIA' || producto.clasificacion === 'SERVICIO')) {
+      toast.error('Solo Mercadería o Servicio pueden facturarse.');
+      return;
+    }
     const loteFefo = producto.lotes?.[0];
     const nuevo: NuevaVentaItem = {
       producto_id: producto.id,
       producto_nombre: `${producto.sku} - ${producto.nombre}`,
-      lote_id: loteFefo?.id,
-      numero_lote: loteFefo?.numero_lote,
-      fecha_vencimiento: loteFefo?.fecha_vencimiento,
+      lote_id: producto.control_lote ? loteFefo?.id : undefined,
+      numero_lote: producto.control_lote ? loteFefo?.numero_lote : undefined,
+      fecha_vencimiento: producto.control_lote ? loteFefo?.fecha_vencimiento : undefined,
       cantidad: 1,
       precio_unitario: producto.precio_venta,
       subtotal: producto.precio_venta,
@@ -136,17 +153,16 @@ export default function NuevaVentaPage() {
     if (!clienteId) { toast.error('Seleccioná un cliente'); return; }
     if (items.length === 0) { toast.error('Agregá al menos un producto'); return; }
     if (condicionPago === 'credito' && total > creditoDisponible) {
-      toast.error(`El cliente no tiene crédito suficiente. Disponible: ${formatCurrency(creditoDisponible)}`);
-      return;
+      toast(`⚠ Venta supera el límite de crédito. Disponible: ${formatCurrency(creditoDisponible)}`, { icon: '⚠️' });
     }
     // Validar stock
     for (const item of items) {
       const prod = productos.find(p => p.id === item.producto_id);
-      if (prod && item.cantidad > prod.stock_actual) {
+      if (prod && prod.clasificacion !== 'SERVICIO' && item.cantidad > prod.stock_actual) {
         toast.error(`Stock insuficiente para ${prod.nombre}. Disponible: ${prod.stock_actual}`);
         return;
       }
-      if (item.lote_id && prod?.lotes) {
+      if (item.lote_id && prod?.lotes && prod.clasificacion !== 'SERVICIO') {
         const lote = prod.lotes.find(l => l.id === item.lote_id);
         if (lote && item.cantidad > lote.stock_actual) {
           toast.error(`Stock insuficiente en lote ${lote.numero_lote}. Disponible: ${lote.stock_actual}`);
@@ -212,25 +228,27 @@ export default function NuevaVentaPage() {
       for (const item of items) {
         // Producto
         const prod = productos.find(p => p.id === item.producto_id);
-        if (prod) {
+        if (prod && prod.clasificacion !== 'SERVICIO') {
           await supabase.from('productos').update({ stock_actual: prod.stock_actual - item.cantidad }).eq('id', item.producto_id);
         }
         // Lote
-        if (item.lote_id && prod?.lotes) {
+        if (item.lote_id && prod?.lotes && prod.clasificacion !== 'SERVICIO') {
           const lote = prod.lotes.find(l => l.id === item.lote_id);
           if (lote) {
             await supabase.from('lotes').update({ stock_actual: lote.stock_actual - item.cantidad }).eq('id', item.lote_id);
           }
         }
         // Movimiento de stock
-        await supabase.from('movimientos_stock').insert({
-          producto_id: item.producto_id,
-          lote_id: item.lote_id || null,
-          tipo: 'salida',
-          cantidad: -item.cantidad,
-          referencia_tipo: 'venta',
-          referencia_id: venta.id,
-        });
+        if (prod?.clasificacion !== 'SERVICIO') {
+          await supabase.from('movimientos_stock').insert({
+            producto_id: item.producto_id,
+            lote_id: item.lote_id || null,
+            tipo: 'salida',
+            cantidad: -item.cantidad,
+            referencia_tipo: 'venta',
+            referencia_id: venta.id,
+          });
+        }
       }
 
       // Actualizar saldo del cliente si es crédito
@@ -469,6 +487,11 @@ export default function NuevaVentaPage() {
                       {formatCurrency(creditoDisponible)}
                     </span>
                   </div>
+                  {condicionPago === 'credito' && total > creditoDisponible && (
+                    <div className="text-yellow-700 dark:text-yellow-300 text-xs font-semibold pt-1">
+                      Aviso: la venta supera el límite de crédito, pero puede registrarse.
+                    </div>
+                  )}
                 </div>
               )}
             </div>
@@ -477,7 +500,7 @@ export default function NuevaVentaPage() {
             <div className="card p-5">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="section-title">Productos</h2>
-                <button onClick={() => { setMostrarBuscador(true); setProductosFiltrados(productos.slice(0, 12)); }} className="btn-primary flex items-center gap-2 text-xs py-1.5">
+                <button onClick={() => { setMostrarBuscador(true); setProductosFiltrados(productos.filter(p => p.clasificacion === 'MERCADERIA' || p.clasificacion === 'SERVICIO').slice(0, 12)); }} className="btn-primary flex items-center gap-2 text-xs py-1.5">
                   <Plus className="w-3.5 h-3.5" /> Agregar producto
                 </button>
               </div>
@@ -505,6 +528,7 @@ export default function NuevaVentaPage() {
                           <div>
                             <span className="font-mono text-xs text-blue-600 mr-2">{p.sku}</span>
                             <span className="font-medium">{p.nombre}</span>
+                            <span className="ml-2 text-xs text-gray-400">{p.clasificacion}</span>
                           </div>
                           <div className="text-right">
                             <div className="font-semibold text-emerald-600">{formatCurrency(p.precio_venta)}</div>

@@ -25,6 +25,13 @@ export interface Producto {
   categoria_id?: string;
   categoria?: Categoria;
   unidad_medida: string;
+  clasificacion: 'MERCADERIA' | 'MATERIA_PRIMA' | 'INSUMO' | 'SERVICIO';
+  codigo_barras?: string;
+  codigo_interno?: number;
+  iva_porcentaje: number;
+  es_exportacion: boolean;
+  plazo_vencimiento_meses: number;
+  porcentaje_comision: number;
   precio_venta: number;
   precio_compra: number;
   stock_actual: number;
@@ -58,6 +65,8 @@ export interface Cliente {
   email?: string;
   limite_credito: number;
   saldo_pendiente: number;
+  es_exterior: boolean;
+  condicion_venta_id?: string;
   activo: boolean;
   created_at: string;
   updated_at: string;
@@ -72,6 +81,7 @@ export interface Proveedor {
   telefono?: string;
   email?: string;
   condicion_pago?: string;
+  condicion_pago_id?: string;
   activo: boolean;
   created_at: string;
 }
@@ -169,7 +179,12 @@ export interface VentaPago {
   cuota_id?: string;
   fecha: string;
   monto: number;
-  medio_pago: 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta' | 'otro';
+  medio_pago: 'efectivo' | 'transferencia' | 'cheque_al_dia' | 'cheque_diferido' | 'tarjeta';
+  numero_recibo?: string;
+  numero_cheque?: string;
+  banco_emisor?: string;
+  fecha_cheque?: string;
+  numero_transaccion?: string;
   referencia?: string;
   notas?: string;
   created_by?: string;

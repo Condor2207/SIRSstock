@@ -91,10 +91,9 @@ export function calcularCuotas(
   return cuotas;
 }
 
-// Validar CUIT argentino (básico)
-export function validarCuit(cuit: string): boolean {
-  const clean = cuit.replace(/[-\s]/g, '');
-  return /^\d{11}$/.test(clean);
+// Validar RUC paraguayo (6 a 8 dígitos + guion + dígito verificador)
+export function validarRucParaguayo(ruc: string): boolean {
+  return /^\d{6,8}-\d$/.test((ruc || '').trim());
 }
 
 // Badge de estado

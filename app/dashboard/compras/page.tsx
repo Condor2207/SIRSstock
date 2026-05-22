@@ -44,7 +44,7 @@ export default function ComprasPage() {
   useEffect(() => {
     load();
     supabase.from('proveedores').select('*').eq('activo', true).order('nombre').then(r => setProveedores(r.data as Proveedor[] || []));
-    supabase.from('productos').select('id, sku, nombre, precio_compra, control_lote').eq('activo', true).order('nombre').then(r => setProductos(r.data as Producto[] || []));
+    supabase.from('productos').select('id, sku, nombre, precio_compra, control_lote, clasificacion, plazo_vencimiento_meses').eq('activo', true).order('nombre').then(r => setProductos(r.data as Producto[] || []));
   }, [load]);
 
   function addItem() {
@@ -59,6 +59,13 @@ export default function ComprasPage() {
         const prod = productos.find(p => p.id === valor);
         item.producto_nombre = prod ? `${prod.sku} - ${prod.nombre}` : '';
         item.precio_unitario = prod?.precio_compra || 0;
+        if (prod?.clasificacion === 'MATERIA_PRIMA') {
+          const base = new Date();
+          base.setMonth(base.getMonth() + (prod.plazo_vencimiento_meses || 36));
+          item.fecha_vencimiento = base.toISOString().split('T')[0];
+        } else if (prod?.clasificacion === 'INSUMO') {
+          item.fecha_vencimiento = '';
+        }
       }
       if (campo === 'cantidad' || campo === 'precio_unitario') {
         item.subtotal = (parseFloat(String(item.cantidad)) || 0) * (parseFloat(String(item.precio_unitario)) || 0);
@@ -75,6 +82,16 @@ export default function ComprasPage() {
   async function handleSave() {
     if (items.length === 0) { toast.error('Agregá al menos un producto'); return; }
     if (items.some(i => !i.producto_id || i.cantidad <= 0)) { toast.error('Completá todos los productos'); return; }
+    const missingLot = items.some(i => {
+      const p = productos.find(prod => prod.id === i.producto_id);
+      return p?.control_lote && !i.numero_lote;
+    });
+    if (missingLot) { toast.error('Los productos con control de lote requieren número de lote'); return; }
+    const missingMateriaPrimaVenc = items.some(i => {
+      const p = productos.find(prod => prod.id === i.producto_id);
+      return p?.clasificacion === 'MATERIA_PRIMA' && !i.fecha_vencimiento;
+    });
+    if (missingMateriaPrimaVenc) { toast.error('Materia prima requiere fecha de vencimiento'); return; }
     setSaving(true);
     try {
       const { count } = await supabase.from('compras').select('*', { count: 'exact', head: true });
@@ -97,7 +114,7 @@ export default function ComprasPage() {
       const itemsData = items.map(i => ({
         compra_id: compra.id,
         producto_id: i.producto_id,
-        numero_lote: i.numero_lote || null,
+        numero_lote: i.numero_lote?.toUpperCase() || null,
         fecha_vencimiento: i.fecha_vencimiento || null,
         descripcion: i.producto_nombre,
         cantidad: i.cantidad,
@@ -276,10 +293,10 @@ export default function ComprasPage() {
                             {prodSelec?.control_lote && (
                               <div>
                                 <label className="label text-xs">N° Lote</label>
-                                <input className="input py-1.5" value={item.numero_lote} onChange={e => updateItem(idx, 'numero_lote', e.target.value)} placeholder="L2024-001" />
+                                <input className="input py-1.5" value={item.numero_lote} onChange={e => updateItem(idx, 'numero_lote', e.target.value.toUpperCase())} placeholder="L2024-001" />
                               </div>
                             )}
-                            {prodSelec?.control_lote && (
+                            {prodSelec?.control_lote && prodSelec?.clasificacion === 'MATERIA_PRIMA' && (
                               <div>
                                 <label className="label text-xs">Vencimiento</label>
                                 <input type="date" className="input py-1.5" value={item.fecha_vencimiento} onChange={e => updateItem(idx, 'fecha_vencimiento', e.target.value)} />

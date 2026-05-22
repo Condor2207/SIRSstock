@@ -15,6 +15,7 @@ import {
   Factory,
   BarChart3,
   Leaf,
+  Settings,
   ChevronLeft,
   ChevronRight,
 } from 'lucide-react';
@@ -22,6 +23,7 @@ import { useState } from 'react';
 
 const navItems = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard', exact: true },
+  { href: '/dashboard/configuracion', icon: Settings, label: 'Configuración' },
   { href: '/dashboard/productos', icon: Package, label: 'Productos' },
   { href: '/dashboard/stock', icon: Boxes, label: 'Stock & Lotes' },
   { href: '/dashboard/ventas', icon: ShoppingCart, label: 'Ventas' },
