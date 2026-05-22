@@ -232,7 +232,7 @@ export default function VentasPage() {
                 <div className="border-t border-gray-100 dark:border-gray-700 pt-4">
                   <h3 className="text-sm font-semibold mb-2">Registrar pago</h3>
                   <div className="flex gap-2 flex-wrap">
-                    {(['efectivo', 'transferencia', 'cheque', 'tarjeta'] as const).map(medio => (
+                    {(['efectivo', 'transferencia', 'cheque_al_dia', 'tarjeta'] as const).map(medio => (
                       <button
                         key={medio}
                         onClick={() => registrarPago(detalle.id, detalle.saldo_pendiente, medio)}

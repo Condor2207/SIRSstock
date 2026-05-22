@@ -3,17 +3,24 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
-import { formatCurrency, estadoBadgeClass } from '@/lib/utils';
+import { formatCurrency } from '@/lib/utils';
 import { Plus, Search, Edit2, Trash2, X, Loader2, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Producto, Categoria } from '@/lib/types';
 
-const UNIDADES = ['unidad', 'kg', 'g', 'litro', 'ml', 'caja', 'bolsa'];
+const CLASIFICACIONES = ['MERCADERIA', 'MATERIA_PRIMA', 'INSUMO', 'SERVICIO'] as const;
+const CLASIFICACION_LABEL: Record<string, string> = {
+  MERCADERIA: 'Mercadería',
+  MATERIA_PRIMA: 'Materia Prima',
+  INSUMO: 'Insumo',
+  SERVICIO: 'Servicio',
+};
 
 export default function ProductosPage() {
   const supabase = createClient();
   const [productos, setProductos] = useState<Producto[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
+  const [unidades, setUnidades] = useState<Array<{ id: string; abreviatura: string; nombre: string }>>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
@@ -23,16 +30,22 @@ export default function ProductosPage() {
     sku: '', nombre: '', descripcion: '', categoria_id: '',
     unidad_medida: 'unidad', precio_venta: '', precio_compra: '',
     stock_minimo: '', control_lote: false, activo: true,
+    clasificacion: 'MERCADERIA',
+    codigo_barras: '',
+    plazo_vencimiento_meses: '36',
+    porcentaje_comision: '0',
   });
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const [prodRes, catRes] = await Promise.all([
+    const [prodRes, catRes, uniRes] = await Promise.all([
       supabase.from('productos').select('*, categoria:categorias(nombre)').order('nombre'),
       supabase.from('categorias').select('*').order('nombre'),
+      supabase.from('unidades_medida').select('id, nombre, abreviatura').eq('activo', true).order('nombre'),
     ]);
     setProductos(prodRes.data as Producto[] || []);
     setCategorias(catRes.data as Categoria[] || []);
+    setUnidades(uniRes.data || []);
     setLoading(false);
   }, []);
 
@@ -40,7 +53,13 @@ export default function ProductosPage() {
 
   function openNew() {
     setEditando(null);
-    setForm({ sku: '', nombre: '', descripcion: '', categoria_id: '', unidad_medida: 'unidad', precio_venta: '', precio_compra: '', stock_minimo: '', control_lote: false, activo: true });
+    setForm({
+      sku: '', nombre: '', descripcion: '', categoria_id: '',
+      unidad_medida: 'und', precio_venta: '', precio_compra: '',
+      stock_minimo: '', control_lote: false, activo: true,
+      clasificacion: 'MERCADERIA', codigo_barras: '',
+      plazo_vencimiento_meses: '36', porcentaje_comision: '0',
+    });
     setShowModal(true);
   }
 
@@ -51,6 +70,10 @@ export default function ProductosPage() {
       categoria_id: p.categoria_id || '', unidad_medida: p.unidad_medida,
       precio_venta: String(p.precio_venta), precio_compra: String(p.precio_compra || 0),
       stock_minimo: String(p.stock_minimo || 0), control_lote: p.control_lote, activo: p.activo,
+      clasificacion: p.clasificacion || 'MERCADERIA',
+      codigo_barras: p.codigo_barras || '',
+      plazo_vencimiento_meses: String(p.plazo_vencimiento_meses || 36),
+      porcentaje_comision: String(p.porcentaje_comision || 0),
     });
     setShowModal(true);
   }
@@ -64,10 +87,14 @@ export default function ProductosPage() {
       descripcion: form.descripcion || null,
       categoria_id: form.categoria_id || null,
       unidad_medida: form.unidad_medida,
+      clasificacion: form.clasificacion,
+      codigo_barras: form.codigo_barras || null,
+      plazo_vencimiento_meses: parseInt(form.plazo_vencimiento_meses, 10) || 36,
+      porcentaje_comision: parseFloat(form.porcentaje_comision) || 0,
       precio_venta: parseFloat(form.precio_venta) || 0,
       precio_compra: parseFloat(form.precio_compra) || 0,
       stock_minimo: parseFloat(form.stock_minimo) || 0,
-      control_lote: form.control_lote,
+      control_lote: form.clasificacion !== 'SERVICIO',
       activo: form.activo,
     };
     try {
@@ -130,6 +157,7 @@ export default function ProductosPage() {
                     <th className="table-header">SKU</th>
                     <th className="table-header">Nombre</th>
                     <th className="table-header">Categoría</th>
+                    <th className="table-header">Clasificación</th>
                     <th className="table-header">Unidad</th>
                     <th className="table-header">Precio Venta</th>
                     <th className="table-header">Stock</th>
@@ -144,6 +172,11 @@ export default function ProductosPage() {
                       <td className="table-cell font-mono text-xs font-semibold text-blue-600">{p.sku}</td>
                       <td className="table-cell font-medium">{p.nombre}</td>
                       <td className="table-cell text-gray-500">{(p as any).categoria?.nombre || '-'}</td>
+                      <td className="table-cell">
+                        <span className="badge bg-indigo-100 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-300">
+                          {CLASIFICACION_LABEL[p.clasificacion] || p.clasificacion}
+                        </span>
+                      </td>
                       <td className="table-cell">{p.unidad_medida}</td>
                       <td className="table-cell font-semibold">{formatCurrency(p.precio_venta)}</td>
                       <td className="table-cell">
@@ -199,8 +232,20 @@ export default function ProductosPage() {
                 <div>
                   <label className="label">Unidad de medida</label>
                   <select className="input" value={form.unidad_medida} onChange={e => setForm(f => ({ ...f, unidad_medida: e.target.value }))}>
-                    {UNIDADES.map(u => <option key={u}>{u}</option>)}
+                    {unidades.map(u => <option key={u.id} value={u.abreviatura}>{u.nombre} ({u.abreviatura})</option>)}
                   </select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="label">Clasificación *</label>
+                  <select className="input" value={form.clasificacion} onChange={e => setForm(f => ({ ...f, clasificacion: e.target.value }))}>
+                    {CLASIFICACIONES.map(c => <option key={c} value={c}>{CLASIFICACION_LABEL[c]}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Código de barras</label>
+                  <input className="input" value={form.codigo_barras} onChange={e => setForm(f => ({ ...f, codigo_barras: e.target.value }))} placeholder="7840505124336" />
                 </div>
               </div>
               <div>
@@ -218,7 +263,7 @@ export default function ProductosPage() {
                   {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
                 </select>
               </div>
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
                 <div>
                   <label className="label">Precio Venta ($)</label>
                   <input type="number" min="0" step="0.01" className="input" value={form.precio_venta} onChange={e => setForm(f => ({ ...f, precio_venta: e.target.value }))} />
@@ -231,12 +276,19 @@ export default function ProductosPage() {
                   <label className="label">Stock mínimo</label>
                   <input type="number" min="0" className="input" value={form.stock_minimo} onChange={e => setForm(f => ({ ...f, stock_minimo: e.target.value }))} />
                 </div>
+                <div>
+                  <label className="label">Plazo venc. (meses)</label>
+                  <input type="number" min="0" className="input" value={form.plazo_vencimiento_meses} onChange={e => setForm(f => ({ ...f, plazo_vencimiento_meses: e.target.value }))} />
+                </div>
               </div>
-              <div className="flex items-center gap-6">
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={form.control_lote} onChange={e => setForm(f => ({ ...f, control_lote: e.target.checked }))} className="w-4 h-4 accent-blue-600" />
-                  <span className="text-sm text-gray-700 dark:text-gray-300">Control por lote/vencimiento</span>
-                </label>
+              <div className="flex items-center gap-6 flex-wrap">
+                <span className="text-sm text-gray-600 dark:text-gray-300">
+                  Control lote: <strong>{form.clasificacion === 'SERVICIO' ? 'No' : 'Sí'}</strong>
+                </span>
+                <div>
+                  <label className="label">Comisión (%)</label>
+                  <input type="number" min="0" step="0.01" className="input" value={form.porcentaje_comision} onChange={e => setForm(f => ({ ...f, porcentaje_comision: e.target.value }))} />
+                </div>
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={form.activo} onChange={e => setForm(f => ({ ...f, activo: e.target.checked }))} className="w-4 h-4 accent-blue-600" />
                   <span className="text-sm text-gray-700 dark:text-gray-300">Activo</span>

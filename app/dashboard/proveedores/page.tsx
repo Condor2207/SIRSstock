@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
+import { validarRucParaguayo } from '@/lib/utils';
 import { Plus, Search, Edit2, Truck, X, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Proveedor } from '@/lib/types';
@@ -14,10 +15,11 @@ export default function ProveedoresPage() {
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando] = useState<Proveedor | null>(null);
+  const [condicionesVenta, setCondicionesVenta] = useState<Array<{ id: string; nombre: string }>>([]);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    nombre: '', documento: '', tipo_documento: 'CUIT',
-    direccion: '', telefono: '', email: '', condicion_pago: '', activo: true,
+    nombre: '', documento: '', tipo_documento: 'RUC',
+    direccion: '', telefono: '', email: '', condicion_pago: '', condicion_pago_id: '', activo: true,
   });
 
   const load = useCallback(async () => {
@@ -28,10 +30,14 @@ export default function ProveedoresPage() {
   }, []);
 
   useEffect(() => { load(); }, [load]);
+  useEffect(() => {
+    supabase.from('condiciones_venta').select('id, nombre').eq('activo', true).order('plazo_dias')
+      .then(({ data }) => setCondicionesVenta(data || []));
+  }, []);
 
   function openNew() {
     setEditando(null);
-    setForm({ nombre: '', documento: '', tipo_documento: 'CUIT', direccion: '', telefono: '', email: '', condicion_pago: '', activo: true });
+    setForm({ nombre: '', documento: '', tipo_documento: 'RUC', direccion: '', telefono: '', email: '', condicion_pago: '', condicion_pago_id: '', activo: true });
     setShowModal(true);
   }
 
@@ -40,18 +46,24 @@ export default function ProveedoresPage() {
     setForm({
       nombre: p.nombre, documento: p.documento || '', tipo_documento: p.tipo_documento || 'CUIT',
       direccion: p.direccion || '', telefono: p.telefono || '', email: p.email || '',
-      condicion_pago: p.condicion_pago || '', activo: p.activo,
+      condicion_pago: p.condicion_pago || '', condicion_pago_id: p.condicion_pago_id || '', activo: p.activo,
     });
     setShowModal(true);
   }
 
   async function handleSave() {
     if (!form.nombre) { toast.error('El nombre es obligatorio'); return; }
+    if (form.tipo_documento === 'RUC' && form.documento && !validarRucParaguayo(form.documento)) {
+      toast.error('El RUC debe tener formato 12345678-9');
+      return;
+    }
     setSaving(true);
     const payload = {
       nombre: form.nombre, documento: form.documento || null, tipo_documento: form.tipo_documento,
       direccion: form.direccion || null, telefono: form.telefono || null, email: form.email || null,
-      condicion_pago: form.condicion_pago || null, activo: form.activo,
+      condicion_pago: form.condicion_pago || null,
+      condicion_pago_id: form.condicion_pago_id || null,
+      activo: form.activo,
     };
     try {
       if (editando) {
@@ -159,12 +171,12 @@ export default function ProveedoresPage() {
                 <div>
                   <label className="label">Tipo</label>
                   <select className="input" value={form.tipo_documento} onChange={e => setForm(f => ({ ...f, tipo_documento: e.target.value }))}>
-                    {['CUIT', 'RUC', 'DNI', 'OTRO'].map(t => <option key={t}>{t}</option>)}
+                    {['RUC', 'CUIT', 'DNI', 'OTRO'].map(t => <option key={t}>{t}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="label">Número doc.</label>
-                  <input className="input" value={form.documento} onChange={e => setForm(f => ({ ...f, documento: e.target.value }))} />
+                  <input className="input" value={form.documento} onChange={e => setForm(f => ({ ...f, documento: e.target.value }))} placeholder={form.tipo_documento === 'RUC' ? '80046906-2' : ''} />
                 </div>
               </div>
               <div>
@@ -184,6 +196,13 @@ export default function ProveedoresPage() {
               <div>
                 <label className="label">Condición de pago</label>
                 <input className="input" value={form.condicion_pago} onChange={e => setForm(f => ({ ...f, condicion_pago: e.target.value }))} placeholder="Ej: 30 días, Contado, 15 días" />
+              </div>
+              <div>
+                <label className="label">Condición de pago habitual (configurada)</label>
+                <select className="input" value={form.condicion_pago_id} onChange={e => setForm(f => ({ ...f, condicion_pago_id: e.target.value }))}>
+                  <option value="">Sin condición</option>
+                  {condicionesVenta.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={form.activo} onChange={e => setForm(f => ({ ...f, activo: e.target.checked }))} className="w-4 h-4 accent-blue-600" />

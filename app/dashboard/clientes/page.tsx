@@ -3,12 +3,12 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
-import { formatCurrency, porcentajeCredito } from '@/lib/utils';
+import { formatCurrency, porcentajeCredito, validarRucParaguayo } from '@/lib/utils';
 import { Plus, Search, Edit2, Users, X, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Cliente } from '@/lib/types';
 
-const TIPOS_DOC = ['DNI', 'CUIT', 'RUC', 'OTRO'];
+const TIPOS_DOC = ['RUC', 'DNI', 'CUIT', 'OTRO'];
 
 export default function ClientesPage() {
   const supabase = createClient();
@@ -17,11 +17,12 @@ export default function ClientesPage() {
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando] = useState<Cliente | null>(null);
+  const [condicionesVenta, setCondicionesVenta] = useState<Array<{ id: string; nombre: string }>>([]);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
-    nombre: '', documento: '', tipo_documento: 'CUIT',
+    nombre: '', documento: '', tipo_documento: 'RUC',
     direccion: '', telefono: '', email: '',
-    limite_credito: '', activo: true,
+    limite_credito: '', condicion_venta_id: '', es_exterior: false, activo: true,
   });
 
   const loadClientes = useCallback(async () => {
@@ -32,10 +33,14 @@ export default function ClientesPage() {
   }, []);
 
   useEffect(() => { loadClientes(); }, [loadClientes]);
+  useEffect(() => {
+    supabase.from('condiciones_venta').select('id, nombre').eq('activo', true).order('plazo_dias')
+      .then(({ data }) => setCondicionesVenta(data || []));
+  }, []);
 
   function openNew() {
     setEditando(null);
-    setForm({ nombre: '', documento: '', tipo_documento: 'CUIT', direccion: '', telefono: '', email: '', limite_credito: '', activo: true });
+    setForm({ nombre: '', documento: '', tipo_documento: 'RUC', direccion: '', telefono: '', email: '', limite_credito: '', condicion_venta_id: '', es_exterior: false, activo: true });
     setShowModal(true);
   }
 
@@ -44,19 +49,26 @@ export default function ClientesPage() {
     setForm({
       nombre: c.nombre, documento: c.documento || '', tipo_documento: c.tipo_documento,
       direccion: c.direccion || '', telefono: c.telefono || '', email: c.email || '',
-      limite_credito: String(c.limite_credito), activo: c.activo,
+      limite_credito: String(c.limite_credito), condicion_venta_id: c.condicion_venta_id || '', es_exterior: c.es_exterior || false, activo: c.activo,
     });
     setShowModal(true);
   }
 
   async function handleSave() {
     if (!form.nombre) { toast.error('El nombre es obligatorio'); return; }
+    if (form.tipo_documento === 'RUC' && form.documento && !validarRucParaguayo(form.documento)) {
+      toast.error('El RUC debe tener formato 12345678-9');
+      return;
+    }
     setSaving(true);
     const payload = {
       nombre: form.nombre, documento: form.documento || null,
       tipo_documento: form.tipo_documento, direccion: form.direccion || null,
       telefono: form.telefono || null, email: form.email || null,
-      limite_credito: parseFloat(form.limite_credito) || 0, activo: form.activo,
+      limite_credito: parseFloat(form.limite_credito) || 0,
+      condicion_venta_id: form.condicion_venta_id || null,
+      es_exterior: form.es_exterior,
+      activo: form.activo,
     };
     try {
       if (editando) {
@@ -196,9 +208,12 @@ export default function ClientesPage() {
                 </div>
                 <div>
                   <label className="label">Número</label>
-                  <input className="input" value={form.documento} onChange={e => setForm(f => ({ ...f, documento: e.target.value }))} placeholder="30-12345678-9" />
+                  <input className="input" value={form.documento} onChange={e => setForm(f => ({ ...f, documento: e.target.value }))} placeholder={form.tipo_documento === 'RUC' ? '80002010-3' : 'Número de documento'} />
                 </div>
               </div>
+              {form.tipo_documento === 'RUC' && (
+               <p className="text-xs text-gray-500">Formato requerido: 6 a 8 dígitos, guion y dígito verificador.</p>
+              )}
               <div>
                 <label className="label">Dirección</label>
                 <input className="input" value={form.direccion} onChange={e => setForm(f => ({ ...f, direccion: e.target.value }))} />
@@ -217,6 +232,17 @@ export default function ClientesPage() {
                 <label className="label">Límite de crédito ($)</label>
                 <input type="number" min="0" step="100" className="input" value={form.limite_credito} onChange={e => setForm(f => ({ ...f, limite_credito: e.target.value }))} />
               </div>
+              <div>
+                <label className="label">Condición de venta habitual</label>
+                <select className="input" value={form.condicion_venta_id} onChange={e => setForm(f => ({ ...f, condicion_venta_id: e.target.value }))}>
+                  <option value="">Sin condición</option>
+                  {condicionesVenta.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
+              </div>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={form.es_exterior} onChange={e => setForm(f => ({ ...f, es_exterior: e.target.checked }))} className="w-4 h-4 accent-blue-600" />
+                <span className="text-sm text-gray-700 dark:text-gray-300">Cliente del exterior (factura exenta)</span>
+              </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={form.activo} onChange={e => setForm(f => ({ ...f, activo: e.target.checked }))} className="w-4 h-4 accent-blue-600" />
                 <span className="text-sm text-gray-700 dark:text-gray-300">Cliente activo</span>
