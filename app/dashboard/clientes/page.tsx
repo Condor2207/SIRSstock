@@ -156,7 +156,7 @@ export default function ClientesPage() {
                       <tr key={c.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${sobreLimite ? 'bg-yellow-50/50 dark:bg-yellow-900/10' : ''}`}>
                         <td className="table-cell font-semibold">
                           <div className="flex items-center gap-1.5">
-                            {sobreLimite && <AlertTriangle className="w-3.5 h-3.5 text-yellow-500 shrink-0" title="Sobre límite de crédito" />}
+                            {sobreLimite && <AlertTriangle className="w-3.5 h-3.5 text-yellow-500 shrink-0" />}
                             {c.nombre}
                           </div>
                         </td>

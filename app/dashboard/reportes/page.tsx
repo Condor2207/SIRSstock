@@ -86,7 +86,7 @@ export default function ReportesPage() {
         const byVendedor: Record<string, { nombre: string; total: number; cantidad: number }> = {};
         for (const c of data || []) {
           const vid = c.vendedor_id;
-          if (!byVendedor[vid]) byVendedor[vid] = { nombre: c.vendedores?.nombre || vid, total: 0, cantidad: 0 };
+          if (!byVendedor[vid]) byVendedor[vid] = { nombre: c.vendedores?.[0]?.nombre || vid, total: 0, cantidad: 0 };
           byVendedor[vid].total += c.monto;
           byVendedor[vid].cantidad += 1;
         }
