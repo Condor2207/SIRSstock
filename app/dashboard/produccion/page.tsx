@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase';
 import { formatDate, formatNumber, estadoBadgeClass } from '@/lib/utils';
 import { Plus, Search, Eye, X, Loader2, Factory, Trash2, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
-import type { Produccion, Producto } from '@/lib/types';
+import type { Produccion, Producto, Clasificacion } from '@/lib/types';
 
 interface ProduccionItemForm {
   producto_id: string;
@@ -21,8 +21,6 @@ interface InsumoForm {
   producto_id: string;
   producto_nombre: string;
   cantidad: number;
-  numero_lote: string;
-  fecha_vencimiento: string;
 }
 
 export default function ProduccionPage() {
@@ -33,6 +31,7 @@ export default function ProduccionPage() {
   const [detalle, setDetalle] = useState<Produccion | null>(null);
   const [saving, setSaving] = useState(false);
   const [productos, setProductos] = useState<Producto[]>([]);
+  const [clasificaciones, setClasificaciones] = useState<Clasificacion[]>([]);
   const [form, setForm] = useState({
     fecha: new Date().toISOString().split('T')[0],
     descripcion: '',
@@ -53,8 +52,26 @@ export default function ProduccionPage() {
 
   useEffect(() => {
     load();
-    supabase.from('productos').select('id, sku, nombre, control_lote, stock_actual, clasificacion, plazo_vencimiento_meses').eq('activo', true).order('nombre').then(r => setProductos(r.data as Producto[] || []));
+    supabase.from('productos').select('id, sku, nombre, control_lote, stock_actual, clasificacion_id, plazo_vencimiento_meses, clasificaciones(nombre, usa_en_produccion, aparece_en_factura)').eq('activo', true).order('nombre').then(r => setProductos(r.data as Producto[] || []));
+    supabase.from('clasificaciones').select('*').then(r => setClasificaciones(r.data as Clasificacion[] || []));
   }, [load]);
+
+  // Productos filtrados por clasificación
+  const productosTerminados = productos.filter(p => {
+    const clas = (p as any).clasificaciones;
+    return !clas || clas.aparece_en_factura === true;
+  });
+  const productosInsumos = productos.filter(p => {
+    const clas = (p as any).clasificaciones;
+    return !clas || clas.usa_en_produccion === true;
+  });
+
+  function calcFechaVenc(fechaBase: string, meses: number): string {
+    if (!fechaBase || !meses) return '';
+    const d = new Date(fechaBase);
+    d.setMonth(d.getMonth() + meses);
+    return d.toISOString().split('T')[0];
+  }
 
   function addItem() {
     setItems(prev => [...prev, { producto_id: '', producto_nombre: '', numero_lote: '', fecha_vencimiento: '', cantidad: 1, usa_lote_comun: form.usar_lote_comun }]);
@@ -67,16 +84,15 @@ export default function ProduccionPage() {
       if (campo === 'producto_id') {
         const prod = productos.find(p => p.id === valor);
         item.producto_nombre = prod ? `${prod.sku} - ${prod.nombre}` : '';
-        const fechaBase = new Date(form.fecha);
-        const meses = prod?.plazo_vencimiento_meses || 36;
-        const venc = new Date(fechaBase);
-        venc.setMonth(venc.getMonth() + meses);
-        const vencIso = venc.toISOString().split('T')[0];
+        // Auto-calcular vencimiento si producto tiene plazo_vencimiento_meses
+        if (prod && (prod as any).plazo_vencimiento_meses && form.fecha) {
+          const autoVenc = calcFechaVenc(form.fecha, (prod as any).plazo_vencimiento_meses);
+          if (!form.usar_lote_comun) item.fecha_vencimiento = autoVenc;
+          else { handleFechaVencComunChange(autoVenc); }
+        }
         if (form.usar_lote_comun) {
           item.numero_lote = form.lote_comun;
-          item.fecha_vencimiento = form.fecha_vencimiento_comun || vencIso;
-        } else if (prod?.clasificacion === 'MATERIA_PRIMA') {
-          item.fecha_vencimiento = vencIso;
+          item.fecha_vencimiento = form.fecha_vencimiento_comun;
         }
       }
       updated[idx] = item;
@@ -85,7 +101,7 @@ export default function ProduccionPage() {
   }
 
   function addInsumo() {
-    setInsumos(prev => [...prev, { producto_id: '', producto_nombre: '', cantidad: 1, numero_lote: '', fecha_vencimiento: '' }]);
+    setInsumos(prev => [...prev, { producto_id: '', producto_nombre: '', cantidad: 1 }]);
   }
 
   function updateInsumo(idx: number, campo: string, valor: any) {
@@ -95,15 +111,6 @@ export default function ProduccionPage() {
       if (campo === 'producto_id') {
         const prod = productos.find(p => p.id === valor);
         ins.producto_nombre = prod ? `${prod.sku} - ${prod.nombre}` : '';
-        if (prod?.clasificacion === 'MATERIA_PRIMA') {
-          const fechaBase = new Date(form.fecha);
-          const meses = prod.plazo_vencimiento_meses || 36;
-          const venc = new Date(fechaBase);
-          venc.setMonth(venc.getMonth() + meses);
-          ins.fecha_vencimiento = venc.toISOString().split('T')[0];
-        } else if (prod?.clasificacion === 'INSUMO') {
-          ins.fecha_vencimiento = '';
-        }
       }
       updated[idx] = ins;
       return updated;
@@ -112,7 +119,7 @@ export default function ProduccionPage() {
 
   // Sincronizar lote común con items cuando cambia
   function handleLoteComunChange(lote: string) {
-    setForm(f => ({ ...f, lote_comun: lote.toUpperCase() }));
+    setForm(f => ({ ...f, lote_comun: lote }));
     if (form.usar_lote_comun) {
       setItems(prev => prev.map(i => i.usa_lote_comun ? { ...i, numero_lote: lote } : i));
     }
@@ -128,26 +135,14 @@ export default function ProduccionPage() {
   async function handleSave(confirmar: boolean) {
     if (items.length === 0) { toast.error('Agregá al menos un producto producido'); return; }
     if (items.some(i => !i.producto_id || i.cantidad <= 0)) { toast.error('Completá todos los productos'); return; }
-    const invalidOutput = items.some(i => {
-      const p = productos.find(prod => prod.id === i.producto_id);
-      return p?.clasificacion !== 'MERCADERIA';
-    });
-    if (invalidOutput) { toast.error('Los productos generados deben ser Mercadería'); return; }
-    const invalidInputs = insumos.some(i => {
-      const p = productos.find(prod => prod.id === i.producto_id);
-      return i.producto_id && !(p?.clasificacion === 'MATERIA_PRIMA' || p?.clasificacion === 'INSUMO');
-    });
-    if (invalidInputs) { toast.error('Los insumos deben ser Materia Prima o Insumo'); return; }
-    const missingInputLot = insumos.some(i => {
-      const p = productos.find(prod => prod.id === i.producto_id);
-      return i.producto_id && p?.control_lote && !i.numero_lote;
-    });
-    if (missingInputLot) { toast.error('Todos los insumos con control de lote deben informar lote'); return; }
-    const missingMateriaPrimaVenc = insumos.some(i => {
-      const p = productos.find(prod => prod.id === i.producto_id);
-      return i.producto_id && p?.clasificacion === 'MATERIA_PRIMA' && !i.fecha_vencimiento;
-    });
-    if (missingMateriaPrimaVenc) { toast.error('Materia Prima requiere fecha de vencimiento'); return; }
+    if (form.usar_lote_comun && !form.fecha_vencimiento_comun) {
+      toast.error('Ingresá la fecha de vencimiento del lote común');
+      return;
+    }
+    if (!form.usar_lote_comun && items.some(i => !i.fecha_vencimiento)) {
+      toast.error('Todos los lotes deben tener fecha de vencimiento');
+      return;
+    }
     setSaving(true);
     try {
       const { count } = await supabase.from('producciones').select('*', { count: 'exact', head: true });
@@ -156,8 +151,8 @@ export default function ProduccionPage() {
       const { data: prod, error } = await supabase.from('producciones').insert({
         numero: numProd,
         fecha: form.fecha,
-        descripcion: form.descripcion.toUpperCase() || null,
-        lote_comun: form.usar_lote_comun ? (form.lote_comun.toUpperCase() || null) : null,
+        descripcion: form.descripcion || null,
+        lote_comun: form.usar_lote_comun ? (form.lote_comun || null) : null,
         fecha_vencimiento_comun: form.usar_lote_comun ? (form.fecha_vencimiento_comun || null) : null,
         estado: confirmar ? 'confirmado' : 'borrador',
       }).select().single();
@@ -167,7 +162,7 @@ export default function ProduccionPage() {
       const itemsData = items.map(i => ({
         produccion_id: prod.id,
         producto_id: i.producto_id,
-        numero_lote: (i.usa_lote_comun ? form.lote_comun : i.numero_lote).toUpperCase(),
+        numero_lote: i.usa_lote_comun ? form.lote_comun : i.numero_lote,
         fecha_vencimiento: (i.usa_lote_comun ? form.fecha_vencimiento_comun : i.fecha_vencimiento) || null,
         cantidad: i.cantidad,
       }));
@@ -175,23 +170,10 @@ export default function ProduccionPage() {
 
       // Insumos
       if (insumos.length > 0 && insumos[0].producto_id) {
-        const insumosData = await Promise.all(insumos.filter(i => i.producto_id).map(async (i) => {
-          let loteId: string | null = null;
-          if (i.numero_lote) {
-            const { data: lote } = await supabase
-              .from('lotes')
-              .select('id')
-              .eq('producto_id', i.producto_id)
-              .eq('numero_lote', i.numero_lote)
-              .maybeSingle();
-            loteId = lote?.id || null;
-          }
-          return {
-            produccion_id: prod.id,
-            producto_id: i.producto_id,
-            lote_id: loteId,
-            cantidad: i.cantidad,
-          };
+        const insumosData = insumos.filter(i => i.producto_id).map(i => ({
+          produccion_id: prod.id,
+          producto_id: i.producto_id,
+          cantidad: i.cantidad,
         }));
         await supabase.from('produccion_insumos').insert(insumosData);
       }
@@ -347,7 +329,7 @@ export default function ProduccionPage() {
                 </div>
                 <div>
                   <label className="label">Descripción</label>
-                  <input className="input" value={form.descripcion} onChange={e => setForm(f => ({ ...f, descripcion: e.target.value.toUpperCase() }))} placeholder="Descripción de la producción" />
+                  <input className="input" value={form.descripcion} onChange={e => setForm(f => ({ ...f, descripcion: e.target.value }))} placeholder="Descripción de la producción" />
                 </div>
               </div>
 
@@ -361,11 +343,11 @@ export default function ProduccionPage() {
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="label text-xs">N° Lote común</label>
-                      <input className="input" value={form.lote_comun} onChange={e => handleLoteComunChange(e.target.value)} placeholder="P2025-001" />
+                      <input className="input uppercase" value={form.lote_comun} onChange={e => handleLoteComunChange(e.target.value.toUpperCase())} placeholder="P2025-001" />
                     </div>
                     <div>
-                      <label className="label text-xs">Fecha de vencimiento común</label>
-                      <input type="date" className="input" value={form.fecha_vencimiento_comun} onChange={e => handleFechaVencComunChange(e.target.value)} />
+                      <label className="label text-xs">Fecha de vencimiento común <span className="text-red-500">*</span></label>
+                      <input type="date" className="input" value={form.fecha_vencimiento_comun} onChange={e => handleFechaVencComunChange(e.target.value)} required />
                     </div>
                   </div>
                 )}
@@ -390,7 +372,7 @@ export default function ProduccionPage() {
                             <label className="label text-xs">Producto</label>
                             <select className="input py-1.5" value={item.producto_id} onChange={e => updateItem(idx, 'producto_id', e.target.value)}>
                               <option value="">Seleccionar...</option>
-                              {productos.filter(p => p.clasificacion === 'MERCADERIA').map(p => <option key={p.id} value={p.id}>{p.sku} - {p.nombre}</option>)}
+                              {productosTerminados.map(p => <option key={p.id} value={p.id}>{p.sku} - {p.nombre}</option>)}
                             </select>
                           </div>
                           <div>
@@ -400,8 +382,8 @@ export default function ProduccionPage() {
                           {!form.usar_lote_comun && (
                             <>
                               <div>
-                                <label className="label text-xs">Lote</label>
-                                <input className="input py-1.5" value={item.numero_lote} onChange={e => updateItem(idx, 'numero_lote', e.target.value.toUpperCase())} placeholder="Lote propio" />
+                        <label className="label text-xs">Lote</label>
+                                <input className="input py-1.5 uppercase" value={item.numero_lote} onChange={e => updateItem(idx, 'numero_lote', e.target.value.toUpperCase())} placeholder="LOTE PROPIO" />
                               </div>
                               <div>
                                 <label className="label text-xs">Vencimiento</label>
@@ -441,30 +423,14 @@ export default function ProduccionPage() {
                           <label className="label text-xs">Insumo/Materia prima</label>
                           <select className="input py-1.5" value={ins.producto_id} onChange={e => updateInsumo(idx, 'producto_id', e.target.value)}>
                             <option value="">Seleccionar...</option>
-                            {productos.filter(p => p.clasificacion === 'MATERIA_PRIMA' || p.clasificacion === 'INSUMO').map(p => <option key={p.id} value={p.id}>{p.sku} - {p.nombre}</option>)}
+                            {productosInsumos.map(p => <option key={p.id} value={p.id}>{p.sku} - {p.nombre}</option>)}
                           </select>
                         </div>
                         <div className="flex gap-1 items-end">
                           <div className="flex-1">
-                            <label className="label text-xs">Lote</label>
-                            <input className="input py-1.5" value={ins.numero_lote} onChange={e => updateInsumo(idx, 'numero_lote', e.target.value.toUpperCase())} />
-                          </div>
-                          <div className="flex-1">
                             <label className="label text-xs">Cantidad</label>
                             <input type="number" min="0.001" step="0.001" className="input py-1.5" value={ins.cantidad} onChange={e => updateInsumo(idx, 'cantidad', parseFloat(e.target.value) || 0)} />
                           </div>
-                          {(() => {
-                            const prodInsumo = productos.find(p => p.id === ins.producto_id);
-                            if (prodInsumo?.clasificacion === 'MATERIA_PRIMA') {
-                              return (
-                                <div className="flex-1">
-                                  <label className="label text-xs">Vencimiento</label>
-                                  <input type="date" className="input py-1.5" value={ins.fecha_vencimiento} onChange={e => updateInsumo(idx, 'fecha_vencimiento', e.target.value)} />
-                                </div>
-                              );
-                            }
-                            return null;
-                          })()}
                           <button onClick={() => setInsumos(prev => prev.filter((_, i) => i !== idx))} className="p-1.5 text-red-400 mb-0.5"><Trash2 className="w-4 h-4" /></button>
                         </div>
                       </div>

@@ -23,6 +23,7 @@ export default function GastosPage() {
     titulo: '', descripcion: '', proveedor_id: '', monto: '',
     fecha: new Date().toISOString().split('T')[0],
     medio_pago: 'efectivo', categoria: '', referencia: '',
+    condicion: 'debito' as 'debito' | 'credito', fecha_vencimiento: '',
   });
 
   const load = useCallback(async () => {
@@ -38,7 +39,7 @@ export default function GastosPage() {
   }, [load]);
 
   function resetForm() {
-    setForm({ titulo: '', descripcion: '', proveedor_id: '', monto: '', fecha: new Date().toISOString().split('T')[0], medio_pago: 'efectivo', categoria: '', referencia: '' });
+    setForm({ titulo: '', descripcion: '', proveedor_id: '', monto: '', fecha: new Date().toISOString().split('T')[0], medio_pago: 'efectivo', categoria: '', referencia: '', condicion: 'debito', fecha_vencimiento: '' });
   }
 
   async function handleSave() {
@@ -52,6 +53,8 @@ export default function GastosPage() {
         proveedor_id: form.proveedor_id || null, monto,
         fecha: form.fecha, medio_pago: form.medio_pago,
         categoria: form.categoria || null, referencia: form.referencia || null,
+        condicion: form.condicion,
+        fecha_vencimiento: form.condicion === 'credito' ? (form.fecha_vencimiento || null) : null,
       });
       if (error) throw error;
       toast.success('Gasto registrado');
@@ -182,11 +185,24 @@ export default function GastosPage() {
                   </select>
                 </div>
                 <div>
+                  <label className="label">Condición</label>
+                  <select className="input" value={form.condicion} onChange={e => setForm(f => ({ ...f, condicion: e.target.value as 'debito' | 'credito' }))}>
+                    <option value="debito">Débito (pagado)</option>
+                    <option value="credito">Crédito (a pagar)</option>
+                  </select>
+                </div>
+                <div>
                   <label className="label">Medio de pago</label>
                   <select className="input" value={form.medio_pago} onChange={e => setForm(f => ({ ...f, medio_pago: e.target.value }))}>
                     {MEDIOS_PAGO.map(m => <option key={m} className="capitalize">{m}</option>)}
                   </select>
                 </div>
+                {form.condicion === 'credito' && (
+                  <div>
+                    <label className="label">Fecha vencimiento</label>
+                    <input type="date" className="input" value={form.fecha_vencimiento} onChange={e => setForm(f => ({ ...f, fecha_vencimiento: e.target.value }))} />
+                  </div>
+                )}
               </div>
               <div>
                 <label className="label">Proveedor (opcional)</label>

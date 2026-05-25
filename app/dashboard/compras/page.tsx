@@ -15,7 +15,9 @@ interface CompraItem {
   fecha_vencimiento: string;
   cantidad: number;
   precio_unitario: number;
+  tasa_iva: number;
   subtotal: number;
+  historial?: { fecha: string; precio: number }[];
 }
 
 export default function ComprasPage() {
@@ -30,7 +32,8 @@ export default function ComprasPage() {
   const [productos, setProductos] = useState<Producto[]>([]);
   const [form, setForm] = useState({
     proveedor_id: '', condicion_pago: 'contado' as 'contado' | 'credito',
-    numero_remito: '', notas: '',
+    numero_remito: '', notas: '', costo_flete: '',
+    plazo_dias: '', cantidad_cuotas: '1',
   });
   const [items, setItems] = useState<CompraItem[]>([]);
 
@@ -44,14 +47,14 @@ export default function ComprasPage() {
   useEffect(() => {
     load();
     supabase.from('proveedores').select('*').eq('activo', true).order('nombre').then(r => setProveedores(r.data as Proveedor[] || []));
-    supabase.from('productos').select('id, sku, nombre, precio_compra, control_lote, clasificacion, plazo_vencimiento_meses').eq('activo', true).order('nombre').then(r => setProductos(r.data as Producto[] || []));
+    supabase.from('productos').select('id, sku, nombre, precio_compra, control_lote').eq('activo', true).order('nombre').then(r => setProductos(r.data as Producto[] || []));
   }, [load]);
 
   function addItem() {
-    setItems(prev => [...prev, { producto_id: '', producto_nombre: '', numero_lote: '', fecha_vencimiento: '', cantidad: 1, precio_unitario: 0, subtotal: 0 }]);
+    setItems(prev => [...prev, { producto_id: '', producto_nombre: '', numero_lote: '', fecha_vencimiento: '', cantidad: 1, precio_unitario: 0, tasa_iva: 10, subtotal: 0, historial: [] }]);
   }
 
-  function updateItem(idx: number, campo: string, valor: string | number) {
+  async function updateItem(idx: number, campo: string, valor: string | number) {
     setItems(prev => {
       const updated = [...prev];
       const item = { ...updated[idx], [campo]: valor };
@@ -59,13 +62,7 @@ export default function ComprasPage() {
         const prod = productos.find(p => p.id === valor);
         item.producto_nombre = prod ? `${prod.sku} - ${prod.nombre}` : '';
         item.precio_unitario = prod?.precio_compra || 0;
-        if (prod?.clasificacion === 'MATERIA_PRIMA') {
-          const base = new Date();
-          base.setMonth(base.getMonth() + (prod.plazo_vencimiento_meses || 36));
-          item.fecha_vencimiento = base.toISOString().split('T')[0];
-        } else if (prod?.clasificacion === 'INSUMO') {
-          item.fecha_vencimiento = '';
-        }
+        item.subtotal = item.cantidad * item.precio_unitario;
       }
       if (campo === 'cantidad' || campo === 'precio_unitario') {
         item.subtotal = (parseFloat(String(item.cantidad)) || 0) * (parseFloat(String(item.precio_unitario)) || 0);
@@ -73,25 +70,39 @@ export default function ComprasPage() {
       updated[idx] = item;
       return updated;
     });
+    // Cargar historial al seleccionar producto
+    if (campo === 'producto_id' && valor) {
+      const { data } = await supabase
+        .from('compra_items')
+        .select('precio_unitario, compras(fecha)')
+        .eq('producto_id', valor)
+        .order('created_at', { ascending: false })
+        .limit(5);
+      setItems(prev => {
+        const updated = [...prev];
+        updated[idx] = { ...updated[idx], historial: (data || []).map((d: any) => ({ fecha: d.compras?.fecha, precio: d.precio_unitario })) };
+        return updated;
+      });
+    }
   }
 
   function removeItem(idx: number) { setItems(prev => prev.filter((_, i) => i !== idx)); }
 
-  const total = items.reduce((s, i) => s + i.subtotal, 0);
+  const subtotalItems = items.reduce((s, i) => s + i.subtotal, 0);
+  const costo_flete = parseFloat(form.costo_flete) || 0;
+  const total = subtotalItems + costo_flete;
 
   async function handleSave() {
     if (items.length === 0) { toast.error('Agregá al menos un producto'); return; }
     if (items.some(i => !i.producto_id || i.cantidad <= 0)) { toast.error('Completá todos los productos'); return; }
-    const missingLot = items.some(i => {
-      const p = productos.find(prod => prod.id === i.producto_id);
-      return p?.control_lote && !i.numero_lote;
+    const itemsSinVenc = items.filter(i => {
+      const prod = productos.find(p => p.id === i.producto_id);
+      return prod?.control_lote && !i.fecha_vencimiento;
     });
-    if (missingLot) { toast.error('Los productos con control de lote requieren número de lote'); return; }
-    const missingMateriaPrimaVenc = items.some(i => {
-      const p = productos.find(prod => prod.id === i.producto_id);
-      return p?.clasificacion === 'MATERIA_PRIMA' && !i.fecha_vencimiento;
-    });
-    if (missingMateriaPrimaVenc) { toast.error('Materia prima requiere fecha de vencimiento'); return; }
+    if (itemsSinVenc.length > 0) {
+      toast.error('Todos los lotes deben tener fecha de vencimiento');
+      return;
+    }
     setSaving(true);
     try {
       const { count } = await supabase.from('compras').select('*', { count: 'exact', head: true });
@@ -103,7 +114,10 @@ export default function ComprasPage() {
         proveedor_id: form.proveedor_id || null,
         condicion_pago: form.condicion_pago,
         numero_remito: form.numero_remito || null,
-        subtotal: total, total,
+        subtotal: subtotalItems, total,
+        costo_flete: costo_flete || 0,
+        plazo_dias: parseInt(form.plazo_dias) || 0,
+        cantidad_cuotas: parseInt(form.cantidad_cuotas) || 1,
         saldo_pendiente: form.condicion_pago === 'credito' ? total : 0,
         estado: form.condicion_pago === 'contado' ? 'pagado' : 'pendiente',
         notas: form.notas || null,
@@ -114,14 +128,28 @@ export default function ComprasPage() {
       const itemsData = items.map(i => ({
         compra_id: compra.id,
         producto_id: i.producto_id,
-        numero_lote: i.numero_lote?.toUpperCase() || null,
+        numero_lote: i.numero_lote || null,
         fecha_vencimiento: i.fecha_vencimiento || null,
         descripcion: i.producto_nombre,
         cantidad: i.cantidad,
         precio_unitario: i.precio_unitario,
+        tasa_iva_porcentaje: i.tasa_iva,
         subtotal: i.subtotal,
       }));
       await supabase.from('compra_items').insert(itemsData);
+
+      // Cuotas automáticas si es crédito
+      if (form.condicion_pago === 'credito') {
+        const cuotas = parseInt(form.cantidad_cuotas) || 1;
+        const montoCuota = Math.round(total / cuotas);
+        const plazo = parseInt(form.plazo_dias) || 30;
+        const cuotasData = Array.from({ length: cuotas }, (_, i) => {
+          const fecha = new Date();
+          fecha.setDate(fecha.getDate() + plazo * (i + 1));
+          return { compra_id: compra.id, numero_cuota: i + 1, fecha_vencimiento: fecha.toISOString().split('T')[0], monto: montoCuota, monto_pagado: 0, estado: 'pendiente' };
+        });
+        await supabase.from('compra_cuotas').insert(cuotasData);
+      }
 
       // Actualizar stock y lotes
       for (const item of items) {
@@ -153,7 +181,7 @@ export default function ComprasPage() {
       toast.success(`Compra ${numCompra} registrada`);
       setShowModal(false);
       setItems([]);
-      setForm({ proveedor_id: '', condicion_pago: 'contado', numero_remito: '', notas: '' });
+      setForm({ proveedor_id: '', condicion_pago: 'contado', numero_remito: '', notas: '', costo_flete: '', plazo_dias: '', cantidad_cuotas: '1' });
       load();
     } catch (e: any) {
       toast.error(e.message || 'Error al guardar');
@@ -262,6 +290,22 @@ export default function ComprasPage() {
                   <input className="input" value={form.numero_remito} onChange={e => setForm(f => ({ ...f, numero_remito: e.target.value }))} placeholder="R-0001-00000123" />
                 </div>
                 <div>
+                  <label className="label">Costo Flete (Gs.)</label>
+                  <input type="number" min="0" className="input" value={form.costo_flete} onChange={e => setForm(f => ({ ...f, costo_flete: e.target.value }))} placeholder="0" />
+                </div>
+                {form.condicion_pago === 'credito' && (
+                  <>
+                    <div>
+                      <label className="label">Plazo (días)</label>
+                      <input type="number" min="1" className="input" value={form.plazo_dias} onChange={e => setForm(f => ({ ...f, plazo_dias: e.target.value }))} placeholder="30" />
+                    </div>
+                    <div>
+                      <label className="label">N° Cuotas</label>
+                      <input type="number" min="1" max="48" className="input" value={form.cantidad_cuotas} onChange={e => setForm(f => ({ ...f, cantidad_cuotas: e.target.value }))} placeholder="1" />
+                    </div>
+                  </>
+                )}
+                <div>
                   <label className="label">Notas</label>
                   <input className="input" value={form.notas} onChange={e => setForm(f => ({ ...f, notas: e.target.value }))} />
                 </div>
@@ -283,23 +327,28 @@ export default function ComprasPage() {
                       return (
                         <div key={idx} className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                           <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-sm items-end">
-                            <div className="sm:col-span-2">
+                        <div className="sm:col-span-2">
                               <label className="label text-xs">Producto</label>
                               <select className="input py-1.5" value={item.producto_id} onChange={e => updateItem(idx, 'producto_id', e.target.value)}>
                                 <option value="">Seleccionar...</option>
                                 {productos.map(p => <option key={p.id} value={p.id}>{p.sku} - {p.nombre}</option>)}
                               </select>
+                              {item.historial && item.historial.length > 0 && (
+                                <div className="mt-1 text-xs text-gray-400">
+                                  Últimos precios: {item.historial.map((h, i) => <span key={i} className="mr-2">{formatCurrency(h.precio)} <span className="text-gray-300">({h.fecha})</span></span>)}
+                                </div>
+                              )}
                             </div>
                             {prodSelec?.control_lote && (
                               <div>
                                 <label className="label text-xs">N° Lote</label>
-                                <input className="input py-1.5" value={item.numero_lote} onChange={e => updateItem(idx, 'numero_lote', e.target.value.toUpperCase())} placeholder="L2024-001" />
+                                <input className="input py-1.5" value={item.numero_lote} onChange={e => updateItem(idx, 'numero_lote', e.target.value)} placeholder="L2024-001" />
                               </div>
                             )}
-                            {prodSelec?.control_lote && prodSelec?.clasificacion === 'MATERIA_PRIMA' && (
+                            {prodSelec?.control_lote && (
                               <div>
-                                <label className="label text-xs">Vencimiento</label>
-                                <input type="date" className="input py-1.5" value={item.fecha_vencimiento} onChange={e => updateItem(idx, 'fecha_vencimiento', e.target.value)} />
+                                <label className="label text-xs">Vencimiento <span className="text-red-500">*</span></label>
+                                <input type="date" className="input py-1.5" value={item.fecha_vencimiento} onChange={e => updateItem(idx, 'fecha_vencimiento', e.target.value)} required />
                               </div>
                             )}
                             <div>
@@ -307,8 +356,16 @@ export default function ComprasPage() {
                               <input type="number" min="0.001" step="0.001" className="input py-1.5" value={item.cantidad} onChange={e => updateItem(idx, 'cantidad', parseFloat(e.target.value) || 0)} />
                             </div>
                             <div>
-                              <label className="label text-xs">Precio unit.</label>
-                              <input type="number" min="0" step="0.01" className="input py-1.5" value={item.precio_unitario} onChange={e => updateItem(idx, 'precio_unitario', parseFloat(e.target.value) || 0)} />
+                              <label className="label text-xs">Precio unit. (c/IVA)</label>
+                              <input type="number" min="0" step="1" className="input py-1.5" value={item.precio_unitario} onChange={e => updateItem(idx, 'precio_unitario', parseFloat(e.target.value) || 0)} />
+                            </div>
+                            <div>
+                              <label className="label text-xs">IVA %</label>
+                              <select className="input py-1.5" value={item.tasa_iva} onChange={e => updateItem(idx, 'tasa_iva', parseFloat(e.target.value))}>  
+                                <option value={10}>10%</option>
+                                <option value={5}>5%</option>
+                                <option value={0}>Exento</option>
+                              </select>
                             </div>
                             <div className="flex items-end gap-1">
                               <div className="flex-1">
@@ -324,7 +381,9 @@ export default function ComprasPage() {
                   </div>
                 )}
                 <div className="flex justify-end mt-3">
-                  <div className="text-right">
+                  <div className="text-right space-y-1 text-sm">
+                    <p>Subtotal productos: <span className="font-semibold">{formatCurrency(subtotalItems)}</span></p>
+                    {costo_flete > 0 && <p>Flete: <span className="font-semibold">{formatCurrency(costo_flete)}</span></p>}
                     <p className="text-lg font-bold">Total: <span className="text-emerald-600">{formatCurrency(total)}</span></p>
                   </div>
                 </div>

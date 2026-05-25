@@ -1,139 +1,167 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { formatCurrency, formatDate } from '@/lib/utils';
-import { Loader2 } from 'lucide-react';
-
-type ComisionRow = {
-  id: string;
-  fecha: string;
-  numero_factura: string | null;
-  precio_sin_iva: number;
-  cantidad: number;
-  porcentaje: number;
-  monto: number;
-  estado: 'pendiente' | 'pagada';
-  vendedor_id: string;
-  vendedor: { nombre: string } | null;
-  cliente: { nombre: string } | null;
-  producto: { nombre: string } | null;
-};
+import { Search, Loader2, BadgePercent, CheckCircle } from 'lucide-react';
+import toast from 'react-hot-toast';
+import type { Vendedor } from '@/lib/types';
 
 export default function ComisionesPage() {
   const supabase = createClient();
+  const [comisiones, setComisiones] = useState<any[]>([]);
+  const [vendedores, setVendedores] = useState<Vendedor[]>([]);
   const [loading, setLoading] = useState(true);
-  const [rows, setRows] = useState<ComisionRow[]>([]);
-  const [vendedorId, setVendedorId] = useState('');
-  const [estado, setEstado] = useState('');
-  const [desde, setDesde] = useState('');
-  const [hasta, setHasta] = useState('');
-  const [selected, setSelected] = useState<string[]>([]);
+  const [filtroVendedor, setFiltroVendedor] = useState('');
+  const [filtroEstado, setFiltroEstado] = useState('');
+  const [filtroMes, setFiltroMes] = useState('');
 
-  const loadData = useCallback(async () => {
+  const load = useCallback(async () => {
     setLoading(true);
-    let query = supabase
-      .from('comisiones')
-      .select('id, fecha, numero_factura, precio_sin_iva, cantidad, porcentaje, monto, estado, vendedor_id, vendedor:vendedores(nombre), cliente:clientes(nombre), producto:productos(nombre)')
+    const q = supabase.from('comisiones')
+      .select('*, vendedores(nombre), clientes(nombre), productos(nombre, sku), ventas(numero)')
       .order('fecha', { ascending: false })
       .limit(500);
-
-    if (vendedorId) query = query.eq('vendedor_id', vendedorId);
-    if (estado) query = query.eq('estado', estado);
-    if (desde) query = query.gte('fecha', desde);
-    if (hasta) query = query.lte('fecha', hasta);
-
-    const { data } = await query;
-    setRows((data || []) as unknown as ComisionRow[]);
-    setSelected([]);
+    const { data } = await q;
+    setComisiones(data || []);
     setLoading(false);
-  }, [supabase, vendedorId, estado, desde, hasta]);
+  }, []);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => {
+    load();
+    supabase.from('vendedores').select('*').eq('activo', true).order('nombre').then(r => setVendedores(r.data as Vendedor[] || []));
+  }, [load]);
 
-  const vendedores = useMemo(() => {
-    const map = new Map<string, string>();
-    rows.forEach((r) => map.set(r.vendedor_id, r.vendedor?.nombre || 'Sin nombre'));
-    return Array.from(map.entries()).map(([id, nombre]) => ({ id, nombre }));
-  }, [rows]);
-
-  const resumen = useMemo(() => {
-    const acc: Record<string, { vendedor: string; facturas: Set<string>; productos: number; pendiente: number; pagada: number }> = {};
-    rows.forEach((r) => {
-      const key = r.vendedor_id;
-      if (!acc[key]) acc[key] = { vendedor: r.vendedor?.nombre || 'Sin vendedor', facturas: new Set(), productos: 0, pendiente: 0, pagada: 0 };
-      acc[key].productos += 1;
-      if (r.numero_factura) acc[key].facturas.add(r.numero_factura);
-      if (r.estado === 'pendiente') acc[key].pendiente += Number(r.monto);
-      if (r.estado === 'pagada') acc[key].pagada += Number(r.monto);
-    });
-    return Object.values(acc).map((r) => ({ ...r, facturas: r.facturas.size }));
-  }, [rows]);
-
-  async function marcarPagadas() {
-    if (selected.length === 0) return;
-    await supabase.from('comisiones').update({ estado: 'pagada', fecha_pago: new Date().toISOString().slice(0, 10) }).in('id', selected);
-    await loadData();
+  async function marcarPagada(id: string) {
+    await supabase.from('comisiones').update({ estado: 'pagada', fecha_pago: new Date().toISOString().split('T')[0] }).eq('id', id);
+    toast.success('Comisión marcada como pagada');
+    load();
   }
+
+  async function marcarSeleccionPagada() {
+    const pendientes = filtered.filter(c => c.estado === 'pendiente').map(c => c.id);
+    if (pendientes.length === 0) { toast.error('No hay comisiones pendientes en la selección actual'); return; }
+    await supabase.from('comisiones').update({ estado: 'pagada', fecha_pago: new Date().toISOString().split('T')[0] }).in('id', pendientes);
+    toast.success(`${pendientes.length} comisiones marcadas como pagadas`);
+    load();
+  }
+
+  const filtered = comisiones.filter(c => {
+    if (filtroVendedor && c.vendedor_id !== filtroVendedor) return false;
+    if (filtroEstado && c.estado !== filtroEstado) return false;
+    if (filtroMes && !c.fecha?.startsWith(filtroMes)) return false;
+    return true;
+  });
+
+  const totalPendiente = filtered.filter(c => c.estado === 'pendiente').reduce((s, c) => s + c.monto, 0);
+  const totalPagado = filtered.filter(c => c.estado === 'pagada').reduce((s, c) => s + c.monto, 0);
+
+  // Agrupar totales por vendedor para el resumen
+  const resumenVendedores = vendedores.map(v => {
+    const mis = comisiones.filter(c => c.vendedor_id === v.id);
+    return { nombre: v.nombre, pendiente: mis.filter(c => c.estado === 'pendiente').reduce((s, c) => s + c.monto, 0), pagado: mis.filter(c => c.estado === 'pagada').reduce((s, c) => s + c.monto, 0) };
+  }).filter(v => v.pendiente + v.pagado > 0);
 
   return (
     <>
-      <Header title="Comisiones" subtitle="Comisiones por vendedor y estado de liquidación" />
+      <Header title="Comisiones" subtitle="Seguimiento de comisiones a vendedores" />
       <div className="p-6 space-y-4">
-        <div className="card p-4 grid grid-cols-1 md:grid-cols-5 gap-2">
-          <select className="input" value={vendedorId} onChange={(e) => setVendedorId(e.target.value)}>
-            <option value="">Todos los vendedores</option>
-            {vendedores.map((v) => <option key={v.id} value={v.id}>{v.nombre}</option>)}
-          </select>
-          <input type="date" className="input" value={desde} onChange={(e) => setDesde(e.target.value)} />
-          <input type="date" className="input" value={hasta} onChange={(e) => setHasta(e.target.value)} />
-          <select className="input" value={estado} onChange={(e) => setEstado(e.target.value)}>
-            <option value="">Todos los estados</option>
-            <option value="pendiente">Pendiente</option>
-            <option value="pagada">Pagada</option>
-          </select>
-          <button onClick={marcarPagadas} disabled={selected.length === 0} className="btn-primary">Marcar pagadas ({selected.length})</button>
+
+        {/* Resumen por vendedor */}
+        {resumenVendedores.length > 0 && (
+          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+            {resumenVendedores.map(v => (
+              <div key={v.nombre} className="card p-4 space-y-1">
+                <p className="text-sm font-semibold text-gray-800 dark:text-gray-200">{v.nombre}</p>
+                <p className="text-xs text-gray-500">Pendiente: <span className="text-yellow-600 font-bold">{formatCurrency(v.pendiente)}</span></p>
+                <p className="text-xs text-gray-500">Pagado: <span className="text-emerald-600 font-bold">{formatCurrency(v.pagado)}</span></p>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Filtros */}
+        <div className="flex flex-wrap gap-3 items-end">
+          <div>
+            <label className="label text-xs">Vendedor</label>
+            <select className="input" value={filtroVendedor} onChange={e => setFiltroVendedor(e.target.value)}>
+              <option value="">Todos</option>
+              {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="label text-xs">Estado</label>
+            <select className="input" value={filtroEstado} onChange={e => setFiltroEstado(e.target.value)}>
+              <option value="">Todos</option>
+              <option value="pendiente">Pendiente</option>
+              <option value="pagada">Pagada</option>
+            </select>
+          </div>
+          <div>
+            <label className="label text-xs">Mes (YYYY-MM)</label>
+            <input className="input" placeholder="2025-01" value={filtroMes} onChange={e => setFiltroMes(e.target.value)} />
+          </div>
+          {filtered.some(c => c.estado === 'pendiente') && (
+            <button onClick={marcarSeleccionPagada} className="btn-primary flex items-center gap-2">
+              <CheckCircle className="w-4 h-4" /> Marcar filtro como pagado
+            </button>
+          )}
+        </div>
+
+        {/* Totales filtrados */}
+        <div className="flex gap-4 text-sm">
+          <span className="text-yellow-600 font-semibold">Pendiente: {formatCurrency(totalPendiente)}</span>
+          <span className="text-emerald-600 font-semibold">Pagado: {formatCurrency(totalPagado)}</span>
         </div>
 
         <div className="card overflow-hidden">
           {loading ? (
-            <div className="flex justify-center items-center h-40"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
-          ) : rows.length === 0 ? (
-            <div className="p-10 text-center text-gray-400">No hay comisiones para los filtros seleccionados.</div>
+            <div className="flex justify-center items-center h-48"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
+          ) : filtered.length === 0 ? (
+            <div className="p-12 text-center text-gray-400">
+              <BadgePercent className="w-10 h-10 mx-auto mb-2 opacity-40" />
+              <p>Sin comisiones registradas</p>
+            </div>
           ) : (
             <div className="overflow-x-auto">
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-gray-800/50">
                   <tr>
-                    <th className="table-header">Sel.</th>
                     <th className="table-header">Fecha</th>
+                    <th className="table-header">Venta</th>
                     <th className="table-header">Vendedor</th>
                     <th className="table-header">Cliente</th>
-                    <th className="table-header">Factura</th>
                     <th className="table-header">Producto</th>
-                    <th className="table-header">Precio s/IVA</th>
                     <th className="table-header">Cant.</th>
-                    <th className="table-header">% Comisión</th>
+                    <th className="table-header">P. s/IVA</th>
+                    <th className="table-header">%</th>
                     <th className="table-header">Monto</th>
                     <th className="table-header">Estado</th>
+                    <th className="table-header"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {rows.map((r) => (
-                    <tr key={r.id}>
-                      <td className="table-cell"><input type="checkbox" checked={selected.includes(r.id)} onChange={(e) => setSelected((prev) => e.target.checked ? [...prev, r.id] : prev.filter((id) => id !== r.id))} /></td>
-                      <td className="table-cell">{formatDate(r.fecha)}</td>
-                      <td className="table-cell">{r.vendedor?.nombre || '-'}</td>
-                      <td className="table-cell">{r.cliente?.nombre || '-'}</td>
-                      <td className="table-cell font-mono text-xs">{r.numero_factura || '-'}</td>
-                      <td className="table-cell">{r.producto?.nombre || '-'}</td>
-                      <td className="table-cell">{formatCurrency(r.precio_sin_iva)}</td>
-                      <td className="table-cell">{r.cantidad}</td>
-                      <td className="table-cell">{r.porcentaje}%</td>
-                      <td className="table-cell font-semibold">{formatCurrency(r.monto)}</td>
+                  {filtered.map(c => (
+                    <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                      <td className="table-cell text-xs">{formatDate(c.fecha)}</td>
+                      <td className="table-cell font-mono text-xs text-blue-600">{c.ventas?.numero || '—'}</td>
+                      <td className="table-cell">{c.vendedores?.nombre || '—'}</td>
+                      <td className="table-cell text-xs">{c.clientes?.nombre || '—'}</td>
+                      <td className="table-cell text-xs">{c.productos?.sku} {c.productos?.nombre}</td>
+                      <td className="table-cell">{c.cantidad}</td>
+                      <td className="table-cell">{formatCurrency(c.precio_sin_iva)}</td>
+                      <td className="table-cell">{c.porcentaje}%</td>
+                      <td className="table-cell font-semibold text-emerald-600">{formatCurrency(c.monto)}</td>
                       <td className="table-cell">
-                        <span className={`badge ${r.estado === 'pendiente' ? 'bg-yellow-100 text-yellow-700' : 'bg-emerald-100 text-emerald-700'}`}>{r.estado}</span>
+                        <span className={`badge ${c.estado === 'pendiente' ? 'bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30' : 'bg-green-100 text-green-700 dark:bg-green-900/30'}`}>{c.estado}</span>
+                      </td>
+                      <td className="table-cell">
+                        {c.estado === 'pendiente' && (
+                          <button onClick={() => marcarPagada(c.id)} className="p-1.5 rounded hover:bg-green-50 dark:hover:bg-green-900/20 text-gray-500 hover:text-green-600" title="Marcar pagada">
+                            <CheckCircle className="w-4 h-4" />
+                          </button>
+                        )}
                       </td>
                     </tr>
                   ))}
@@ -141,23 +169,6 @@ export default function ComisionesPage() {
               </table>
             </div>
           )}
-        </div>
-
-        <div className="card p-4">
-          <h3 className="font-semibold mb-3">Resumen por vendedor</h3>
-          <div className="grid md:grid-cols-2 gap-3">
-            {resumen.length === 0 ? (
-              <p className="text-sm text-gray-500">Sin datos.</p>
-            ) : resumen.map((r) => (
-              <div key={r.vendedor} className="border rounded-lg p-3 text-sm">
-                <div className="font-semibold">{r.vendedor}</div>
-                <div>Facturas: <strong>{r.facturas}</strong></div>
-                <div>Productos: <strong>{r.productos}</strong></div>
-                <div>Pendiente: <strong className="text-yellow-700">{formatCurrency(r.pendiente)}</strong></div>
-                <div>Liquidado: <strong className="text-emerald-700">{formatCurrency(r.pagada)}</strong></div>
-              </div>
-            ))}
-          </div>
         </div>
       </div>
     </>

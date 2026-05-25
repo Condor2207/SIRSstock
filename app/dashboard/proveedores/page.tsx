@@ -3,66 +3,72 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
-import { validarRucParaguayo } from '@/lib/utils';
 import { Plus, Search, Edit2, Truck, X, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import type { Proveedor } from '@/lib/types';
+import type { Proveedor, CondicionVenta } from '@/lib/types';
 
 export default function ProveedoresPage() {
   const supabase = createClient();
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
+  const [condiciones, setCondiciones] = useState<CondicionVenta[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando] = useState<Proveedor | null>(null);
-  const [condicionesVenta, setCondicionesVenta] = useState<Array<{ id: string; nombre: string }>>([]);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     nombre: '', documento: '', tipo_documento: 'RUC',
-    direccion: '', telefono: '', email: '', condicion_pago: '', condicion_pago_id: '', activo: true,
+    direccion: '', telefono: '', email: '', condicion_pago: '',
+    condicion_venta_id: '', activo: true,
   });
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase.from('proveedores').select('*').order('nombre');
-    setProveedores(data as Proveedor[] || []);
+    const [provRes, condRes] = await Promise.all([
+      supabase.from('proveedores').select('*').order('nombre'),
+      supabase.from('condiciones_venta').select('*').eq('activo', true).order('nombre'),
+    ]);
+    setProveedores(provRes.data as Proveedor[] || []);
+    setCondiciones(condRes.data as CondicionVenta[] || []);
     setLoading(false);
   }, []);
 
   useEffect(() => { load(); }, [load]);
-  useEffect(() => {
-    supabase.from('condiciones_venta').select('id, nombre').eq('activo', true).order('plazo_dias')
-      .then(({ data }) => setCondicionesVenta(data || []));
-  }, []);
 
   function openNew() {
     setEditando(null);
-    setForm({ nombre: '', documento: '', tipo_documento: 'RUC', direccion: '', telefono: '', email: '', condicion_pago: '', condicion_pago_id: '', activo: true });
+    setForm({ nombre: '', documento: '', tipo_documento: 'RUC', direccion: '', telefono: '', email: '', condicion_pago: '', condicion_venta_id: '', activo: true });
     setShowModal(true);
   }
 
   function openEdit(p: Proveedor) {
     setEditando(p);
     setForm({
-      nombre: p.nombre, documento: p.documento || '', tipo_documento: p.tipo_documento || 'CUIT',
+      nombre: p.nombre, documento: p.documento || '', tipo_documento: p.tipo_documento || 'RUC',
       direccion: p.direccion || '', telefono: p.telefono || '', email: p.email || '',
-      condicion_pago: p.condicion_pago || '', condicion_pago_id: p.condicion_pago_id || '', activo: p.activo,
+      condicion_pago: p.condicion_pago || '',
+      condicion_venta_id: (p as any).condicion_venta_id || '',
+      activo: p.activo,
     });
     setShowModal(true);
   }
 
+  function validateRUC(ruc: string): boolean {
+    if (!ruc) return true;
+    return /^\d{3,8}-\d$/.test(ruc.trim());
+  }
+
   async function handleSave() {
     if (!form.nombre) { toast.error('El nombre es obligatorio'); return; }
-    if (form.tipo_documento === 'RUC' && form.documento && !validarRucParaguayo(form.documento)) {
-      toast.error('El RUC debe tener formato 12345678-9');
-      return;
+    if (form.tipo_documento === 'RUC' && form.documento && !validateRUC(form.documento)) {
+      toast.error('Formato RUC inválido. Ej: 80046906-2'); return;
     }
     setSaving(true);
     const payload = {
       nombre: form.nombre, documento: form.documento || null, tipo_documento: form.tipo_documento,
       direccion: form.direccion || null, telefono: form.telefono || null, email: form.email || null,
       condicion_pago: form.condicion_pago || null,
-      condicion_pago_id: form.condicion_pago_id || null,
+      condicion_venta_id: form.condicion_venta_id || null,
       activo: form.activo,
     };
     try {
@@ -171,12 +177,12 @@ export default function ProveedoresPage() {
                 <div>
                   <label className="label">Tipo</label>
                   <select className="input" value={form.tipo_documento} onChange={e => setForm(f => ({ ...f, tipo_documento: e.target.value }))}>
-                    {['RUC', 'CUIT', 'DNI', 'OTRO'].map(t => <option key={t}>{t}</option>)}
+                    {['CUIT', 'RUC', 'DNI', 'OTRO'].map(t => <option key={t}>{t}</option>)}
                   </select>
                 </div>
                 <div>
                   <label className="label">Número doc.</label>
-                  <input className="input" value={form.documento} onChange={e => setForm(f => ({ ...f, documento: e.target.value }))} placeholder={form.tipo_documento === 'RUC' ? '80046906-2' : ''} />
+                  <input className="input" value={form.documento} onChange={e => setForm(f => ({ ...f, documento: e.target.value }))} />
                 </div>
               </div>
               <div>
@@ -193,16 +199,18 @@ export default function ProveedoresPage() {
                   <input type="email" className="input" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
                 </div>
               </div>
-              <div>
-                <label className="label">Condición de pago</label>
-                <input className="input" value={form.condicion_pago} onChange={e => setForm(f => ({ ...f, condicion_pago: e.target.value }))} placeholder="Ej: 30 días, Contado, 15 días" />
-              </div>
-              <div>
-                <label className="label">Condición de pago habitual (configurada)</label>
-                <select className="input" value={form.condicion_pago_id} onChange={e => setForm(f => ({ ...f, condicion_pago_id: e.target.value }))}>
-                  <option value="">Sin condición</option>
-                  {condicionesVenta.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Condición de pago</label>
+                  <select className="input" value={form.condicion_venta_id} onChange={e => setForm(f => ({ ...f, condicion_venta_id: e.target.value }))}>
+                    <option value="">Sin asignar</option>
+                    {condiciones.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Nota condición libre</label>
+                  <input className="input" value={form.condicion_pago} onChange={e => setForm(f => ({ ...f, condicion_pago: e.target.value }))} placeholder="Observaciones" />
+                </div>
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="checkbox" checked={form.activo} onChange={e => setForm(f => ({ ...f, activo: e.target.checked }))} className="w-4 h-4 accent-blue-600" />

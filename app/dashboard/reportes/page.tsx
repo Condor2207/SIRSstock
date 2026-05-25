@@ -5,10 +5,10 @@ import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { formatCurrency, formatDate, formatNumber, diasHastaVencimiento, estadoVencimiento } from '@/lib/utils';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line } from 'recharts';
-import { Download, BarChart2, Package, Users, AlertTriangle, Loader2 } from 'lucide-react';
+import { Download, BarChart2, Package, Users, AlertTriangle, Loader2, CreditCard, BadgePercent, Receipt } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-type TabType = 'ventas' | 'stock' | 'cobrar' | 'vencimientos';
+type TabType = 'ventas' | 'stock' | 'cobrar' | 'vencimientos' | 'pagar' | 'comisiones' | 'gastos_credito';
 
 export default function ReportesPage() {
   const supabase = createClient();
@@ -23,6 +23,9 @@ export default function ReportesPage() {
   const [stockData, setStockData] = useState<any[]>([]);
   const [cobrarData, setCobrarData] = useState<any[]>([]);
   const [vencimientosData, setVencimientosData] = useState<any[]>([]);
+  const [pagarData, setPagarData] = useState<any[]>([]);
+  const [comisionesData, setComisionesData] = useState<any[]>([]);
+  const [gastosCreditoData, setGastosCreditoData] = useState<any[]>([]);
 
   useEffect(() => { loadData(); }, [tab, desde, hasta]);
 
@@ -67,6 +70,34 @@ export default function ReportesPage() {
           .not('fecha_vencimiento', 'is', null)
           .order('fecha_vencimiento');
         setVencimientosData(data || []);
+      } else if (tab === 'pagar') {
+        const { data } = await supabase
+          .from('compras')
+          .select('numero, fecha, total, condicion_pago, proveedor_id, proveedores(nombre), compra_cuotas(numero_cuota, fecha_vencimiento, monto, estado)')
+          .gt('saldo_pendiente', 0)
+          .order('fecha', { ascending: false });
+        setPagarData(data || []);
+      } else if (tab === 'comisiones') {
+        const { data } = await supabase
+          .from('comisiones')
+          .select('vendedor_id, monto, estado, vendedores(nombre)')
+          .eq('estado', 'pendiente');
+        // Agrupar por vendedor
+        const byVendedor: Record<string, { nombre: string; total: number; cantidad: number }> = {};
+        for (const c of data || []) {
+          const vid = c.vendedor_id;
+          if (!byVendedor[vid]) byVendedor[vid] = { nombre: c.vendedores?.nombre || vid, total: 0, cantidad: 0 };
+          byVendedor[vid].total += c.monto;
+          byVendedor[vid].cantidad += 1;
+        }
+        setComisionesData(Object.values(byVendedor));
+      } else if (tab === 'gastos_credito') {
+        const { data } = await supabase
+          .from('gastos')
+          .select('titulo, fecha, monto, fecha_vencimiento, categoria, proveedores(nombre)')
+          .eq('condicion', 'credito')
+          .order('fecha_vencimiento', { ascending: true });
+        setGastosCreditoData(data || []);
       }
     } catch (e) {
       console.error(e);
@@ -88,6 +119,15 @@ export default function ReportesPage() {
     } else if (tab === 'cobrar') {
       filename = 'cuentas_cobrar';
       rows = [['Cliente', 'Documento', 'Teléfono', 'Límite crédito', 'Saldo pendiente'], ...cobrarData.map(c => [c.nombre, c.documento || '', c.telefono || '', c.limite_credito, c.saldo_pendiente])];
+    } else if (tab === 'pagar') {
+      filename = 'cuentas_pagar';
+      rows = [['Compra', 'Proveedor', 'Fecha', 'Total'], ...pagarData.map(p => [p.numero, p.proveedores?.nombre || '', p.fecha, p.total])];
+    } else if (tab === 'comisiones') {
+      filename = 'comisiones_pendientes';
+      rows = [['Vendedor', 'Cantidad', 'Total pendiente'], ...comisionesData.map(c => [c.nombre, c.cantidad, c.total])];
+    } else if (tab === 'gastos_credito') {
+      filename = 'gastos_credito';
+      rows = [['Gasto', 'Proveedor', 'Fecha', 'Monto', 'Vencimiento'], ...gastosCreditoData.map(g => [g.titulo, g.proveedores?.nombre || '', g.fecha, g.monto, g.fecha_vencimiento || ''])];
     } else if (tab === 'vencimientos') {
       filename = 'lotes_vencimiento';
       rows = [['Producto', 'SKU', 'Lote', 'Vencimiento', 'Stock', 'Días restantes'],
@@ -113,9 +153,12 @@ export default function ReportesPage() {
   });
 
   const tabs: { id: TabType; label: string; icon: any }[] = [
-    { id: 'ventas', label: 'Ventas por período', icon: BarChart2 },
-    { id: 'stock', label: 'Stock actual', icon: Package },
+    { id: 'ventas', label: 'Ventas', icon: BarChart2 },
+    { id: 'stock', label: 'Stock', icon: Package },
     { id: 'cobrar', label: 'Cuentas a cobrar', icon: Users },
+    { id: 'pagar', label: 'Cuentas a pagar', icon: CreditCard },
+    { id: 'comisiones', label: 'Comisiones pend.', icon: BadgePercent },
+    { id: 'gastos_credito', label: 'Gastos a pagar', icon: Receipt },
     { id: 'vencimientos', label: 'Lotes por vencer', icon: AlertTriangle },
   ];
 
@@ -288,6 +331,138 @@ export default function ReportesPage() {
                       </tbody>
                     </table>
                   </div>
+                )}
+              </div>
+            )}
+
+            {/* CUENTAS A PAGAR */}
+            {tab === 'pagar' && (
+              <div className="space-y-4">
+                {pagarData.length === 0 ? (
+                  <div className="card p-12 text-center text-gray-400">No hay compras con saldo pendiente</div>
+                ) : (
+                  <div className="card overflow-hidden">
+                    <table className="w-full">
+                      <thead className="bg-gray-50 dark:bg-gray-800/50">
+                        <tr>
+                          <th className="table-header">Compra</th>
+                          <th className="table-header">Proveedor</th>
+                          <th className="table-header">Fecha</th>
+                          <th className="table-header">Total</th>
+                          <th className="table-header">Cuotas pendientes</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                        {pagarData.map((p, i) => {
+                          const cuotasPend = (p.compra_cuotas || []).filter((c: any) => c.estado === 'pendiente');
+                          const totalPend = cuotasPend.reduce((s: number, c: any) => s + c.monto, 0);
+                          const proxVenc = cuotasPend.sort((a: any, b: any) => a.fecha_vencimiento?.localeCompare(b.fecha_vencimiento))[0];
+                          const dias = proxVenc ? diasHastaVencimiento(proxVenc.fecha_vencimiento) : null;
+                          return (
+                            <tr key={i} className={typeof dias === 'number' && dias <= 7 ? 'bg-red-50/50 dark:bg-red-900/10' : ''}>
+                              <td className="table-cell font-mono text-xs font-bold">{p.numero}</td>
+                              <td className="table-cell">{p.proveedores?.nombre || '—'}</td>
+                              <td className="table-cell text-xs">{formatDate(p.fecha)}</td>
+                              <td className="table-cell font-semibold">{formatCurrency(p.total)}</td>
+                              <td className="table-cell">
+                                <div className="text-xs space-y-0.5">
+                                  <span className="font-bold text-red-600">{formatCurrency(totalPend)}</span>
+                                  {proxVenc && <span className="block text-gray-400">Próx. vto: {formatDate(proxVenc.fecha_vencimiento)} {typeof dias === 'number' ? `(${dias}d)` : ''}</span>}
+                                </div>
+                              </td>
+                            </tr>
+                          );
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* COMISIONES PENDIENTES */}
+            {tab === 'comisiones' && (
+              <div className="space-y-4">
+                {comisionesData.length === 0 ? (
+                  <div className="card p-12 text-center text-gray-400">No hay comisiones pendientes</div>
+                ) : (
+                  <>
+                    <div className="card p-4">
+                      <p className="text-sm text-gray-500">Total comisiones pendientes</p>
+                      <p className="text-2xl font-bold text-yellow-600">{formatCurrency(comisionesData.reduce((s, c) => s + c.total, 0))}</p>
+                    </div>
+                    <div className="card overflow-hidden">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 dark:bg-gray-800/50">
+                          <tr>
+                            <th className="table-header">Vendedor</th>
+                            <th className="table-header">Cantidad facturas</th>
+                            <th className="table-header">Total pendiente</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                          {comisionesData.map((c, i) => (
+                            <tr key={i}>
+                              <td className="table-cell font-medium">{c.nombre}</td>
+                              <td className="table-cell">{c.cantidad}</td>
+                              <td className="table-cell font-bold text-yellow-600">{formatCurrency(c.total)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
+                )}
+              </div>
+            )}
+
+            {/* GASTOS CRÉDITO (a pagar) */}
+            {tab === 'gastos_credito' && (
+              <div className="space-y-4">
+                {gastosCreditoData.length === 0 ? (
+                  <div className="card p-12 text-center text-gray-400">No hay gastos pendientes de pago</div>
+                ) : (
+                  <>
+                    <div className="card p-4">
+                      <p className="text-sm text-gray-500">Total gastos a pagar</p>
+                      <p className="text-2xl font-bold text-red-500">{formatCurrency(gastosCreditoData.reduce((s, g) => s + g.monto, 0))}</p>
+                    </div>
+                    <div className="card overflow-hidden">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 dark:bg-gray-800/50">
+                          <tr>
+                            <th className="table-header">Gasto</th>
+                            <th className="table-header">Proveedor</th>
+                            <th className="table-header">Fecha</th>
+                            <th className="table-header">Monto</th>
+                            <th className="table-header">Vencimiento</th>
+                            <th className="table-header">Días</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                          {gastosCreditoData.map((g, i) => {
+                            const dias = g.fecha_vencimiento ? diasHastaVencimiento(g.fecha_vencimiento) : null;
+                            return (
+                              <tr key={i} className={typeof dias === 'number' && dias <= 7 ? 'bg-red-50/50 dark:bg-red-900/10' : ''}>
+                                <td className="table-cell font-medium">{g.titulo}</td>
+                                <td className="table-cell text-sm">{g.proveedores?.nombre || '—'}</td>
+                                <td className="table-cell text-xs">{formatDate(g.fecha)}</td>
+                                <td className="table-cell font-bold text-red-500">{formatCurrency(g.monto)}</td>
+                                <td className="table-cell text-xs">{g.fecha_vencimiento ? formatDate(g.fecha_vencimiento) : '—'}</td>
+                                <td className="table-cell">
+                                  {typeof dias === 'number' ? (
+                                    <span className={`badge ${dias <= 0 ? 'bg-red-100 text-red-700' : dias <= 7 ? 'bg-orange-100 text-orange-700' : dias <= 30 ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'}`}>
+                                      {dias <= 0 ? 'Vencido' : `${dias}d`}
+                                    </span>
+                                  ) : '—'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 )}
               </div>
             )}

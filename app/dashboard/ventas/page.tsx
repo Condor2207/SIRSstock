@@ -15,6 +15,9 @@ export default function VentasPage() {
   const [search, setSearch] = useState('');
   const [detalle, setDetalle] = useState<Venta | null>(null);
   const [filtroEstado, setFiltroEstado] = useState('');
+  const [showAnularModal, setShowAnularModal] = useState(false);
+  const [ventaAnulando, setVentaAnulando] = useState<string | null>(null);
+  const [motivoAnulacion, setMotivoAnulacion] = useState('');
 
   const loadVentas = useCallback(async () => {
     setLoading(true);
@@ -38,9 +41,41 @@ export default function VentasPage() {
     setDetalle(data as Venta);
   }
 
-  async function anularVenta(id: string) {
-    if (!confirm('¿Anular esta venta?')) return;
-    await supabase.from('ventas').update({ estado: 'anulado' }).eq('id', id);
+  function pedirMotivoAnulacion(id: string) {
+    setVentaAnulando(id);
+    setMotivoAnulacion('');
+    setShowAnularModal(true);
+  }
+
+  async function confirmarAnulacion() {
+    if (!ventaAnulando || !motivoAnulacion.trim()) return;
+    const { data: ventaData } = await supabase
+      .from('ventas')
+      .select('*, venta_items(producto_id, lote_id, cantidad), clientes(saldo_pendiente)')
+      .eq('id', ventaAnulando)
+      .single();
+    if (ventaData) {
+      for (const item of (ventaData.venta_items || [])) {
+        const { data: prod } = await supabase.from('productos').select('stock_actual').eq('id', item.producto_id).single();
+        if (prod) await supabase.from('productos').update({ stock_actual: prod.stock_actual + item.cantidad }).eq('id', item.producto_id);
+        if (item.lote_id) {
+          const { data: lote } = await supabase.from('lotes').select('stock_actual').eq('id', item.lote_id).single();
+          if (lote) await supabase.from('lotes').update({ stock_actual: lote.stock_actual + item.cantidad }).eq('id', item.lote_id);
+        }
+        await supabase.from('movimientos_stock').insert({
+          producto_id: item.producto_id, lote_id: item.lote_id || null,
+          tipo: 'devolucion', cantidad: item.cantidad,
+          referencia_tipo: 'anulacion_venta', referencia_id: ventaAnulando,
+        });
+      }
+      if (ventaData.condicion_pago === 'credito' && ventaData.saldo_pendiente > 0) {
+        const saldoCliente = (ventaData as any).clientes?.saldo_pendiente || 0;
+        await supabase.from('clientes').update({ saldo_pendiente: Math.max(0, saldoCliente - ventaData.saldo_pendiente) }).eq('id', ventaData.cliente_id);
+      }
+    }
+    await supabase.from('ventas').update({ estado: 'anulado', motivo_anulacion: motivoAnulacion }).eq('id', ventaAnulando);
+    setShowAnularModal(false);
+    setVentaAnulando(null);
     loadVentas();
   }
 
@@ -141,7 +176,7 @@ export default function VentasPage() {
                             <Eye className="w-4 h-4" />
                           </button>
                           {v.estado !== 'anulado' && (
-                            <button onClick={() => anularVenta(v.id)} className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-500 hover:text-red-600 text-xs" title="Anular">
+                            <button onClick={() => pedirMotivoAnulacion(v.id)} className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-500 hover:text-red-600 text-xs" title="Anular">
                               <X className="w-4 h-4" />
                             </button>
                           )}
@@ -244,6 +279,24 @@ export default function VentasPage() {
                   </div>
                 </div>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {showAnularModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
+          <div className="card w-full max-w-md p-6 space-y-4">
+            <h2 className="section-title text-red-600">Anular venta</h2>
+            <p className="text-sm text-gray-600 dark:text-gray-400">Esta acción revertirá el stock y, si era crédito, el saldo del cliente. Indicá el motivo:</p>
+            <div>
+              <label className="label">Motivo de anulación *</label>
+              <textarea className="input" rows={3} value={motivoAnulacion} onChange={e => setMotivoAnulacion(e.target.value)} placeholder="Ej: Error en facturación, devolución del cliente..." />
+            </div>
+            <div className="flex justify-end gap-3">
+              <button onClick={() => setShowAnularModal(false)} className="btn-secondary">Cancelar</button>
+              <button onClick={confirmarAnulacion} disabled={!motivoAnulacion.trim()} className="btn-danger flex items-center gap-2">
+                Confirmar anulación
+              </button>
             </div>
           </div>
         </div>

@@ -25,13 +25,6 @@ export interface Producto {
   categoria_id?: string;
   categoria?: Categoria;
   unidad_medida: string;
-  clasificacion: 'MERCADERIA' | 'MATERIA_PRIMA' | 'INSUMO' | 'SERVICIO';
-  codigo_barras?: string;
-  codigo_interno?: number;
-  iva_porcentaje: number;
-  es_exportacion: boolean;
-  plazo_vencimiento_meses: number;
-  porcentaje_comision: number;
   precio_venta: number;
   precio_compra: number;
   stock_actual: number;
@@ -41,6 +34,22 @@ export interface Producto {
   created_at: string;
   updated_at: string;
   lotes?: Lote[];
+  // Nuevos campos 004
+  clasificacion_id?: string;
+  clasificacion?: Clasificacion;
+  codigo_barras?: string;
+  codigo_interno?: number;
+  marca_id?: string;
+  marca?: Marca;
+  linea_id?: string;
+  linea?: Linea;
+  grupo_id?: string;
+  grupo?: Grupo;
+  tasa_iva_id?: string;
+  tasa_iva_ref?: TasaIva;
+  es_exportacion?: boolean;
+  plazo_vencimiento_meses?: number;
+  porcentaje_comision?: number;
 }
 
 export interface Lote {
@@ -65,21 +74,17 @@ export interface Cliente {
   email?: string;
   limite_credito: number;
   saldo_pendiente: number;
-  es_exterior: boolean;
-  condicion_venta_id?: string;
-  vendedor_id?: string;
   activo: boolean;
   created_at: string;
   updated_at: string;
-}
-
-export interface Vendedor {
-  id: string;
-  nombre: string;
-  telefono?: string;
-  email?: string;
-  activo: boolean;
-  created_at: string;
+  // Nuevos campos 004
+  lista_precios_id?: string;
+  lista_precios?: ListaPrecios;
+  vendedor_id?: string;
+  vendedor?: Vendedor;
+  condicion_venta_id?: string;
+  condicion_venta?: CondicionVenta;
+  es_exterior?: boolean;
 }
 
 export interface Proveedor {
@@ -91,7 +96,8 @@ export interface Proveedor {
   telefono?: string;
   email?: string;
   condicion_pago?: string;
-  condicion_pago_id?: string;
+  condicion_venta_id?: string;
+  condicion_venta?: CondicionVenta;
   activo: boolean;
   created_at: string;
 }
@@ -148,6 +154,11 @@ export interface Venta {
   estado: 'pendiente' | 'pagado' | 'parcial' | 'anulado';
   numero_factura?: string;
   punto_venta?: string;
+  timbrado?: string;
+  tasa_iva: number;
+  nota_remision?: string;
+  fecha_vencimiento_factura?: string;
+  motivo_anulacion?: string;
   notas?: string;
   created_by?: string;
   created_at: string;
@@ -169,6 +180,12 @@ export interface VentaItem {
   cantidad: number;
   precio_unitario: number;
   subtotal: number;
+  tasa_iva_porcentaje?: number;
+  monto_exento?: number;
+  monto_gravado_5?: number;
+  monto_gravado_10?: number;
+  iva_5?: number;
+  iva_10?: number;
   created_at: string;
 }
 
@@ -189,33 +206,10 @@ export interface VentaPago {
   cuota_id?: string;
   fecha: string;
   monto: number;
-  medio_pago: 'efectivo' | 'transferencia' | 'cheque_al_dia' | 'cheque_diferido' | 'tarjeta';
-  numero_recibo?: string;
-  numero_cheque?: string;
-  banco_emisor?: string;
-  fecha_cheque?: string;
-  numero_transaccion?: string;
+  medio_pago: 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta' | 'otro';
   referencia?: string;
   notas?: string;
   created_by?: string;
-  created_at: string;
-}
-
-export interface Comision {
-  id: string;
-  venta_id: string;
-  venta_item_id?: string;
-  vendedor_id: string;
-  cliente_id: string;
-  producto_id: string;
-  numero_factura?: string;
-  fecha: string;
-  precio_sin_iva: number;
-  cantidad: number;
-  porcentaje: number;
-  monto: number;
-  estado: 'pendiente' | 'pagada';
-  fecha_pago?: string;
   created_at: string;
 }
 
@@ -232,6 +226,9 @@ export interface Compra {
   saldo_pendiente: number;
   estado: 'pendiente' | 'pagado' | 'parcial' | 'anulado';
   notas?: string;
+  costo_flete?: number;
+  plazo_dias?: number;
+  cantidad_cuotas?: number;
   created_by?: string;
   created_at: string;
   compra_items?: CompraItem[];
@@ -261,6 +258,8 @@ export interface Gasto {
   monto: number;
   fecha: string;
   medio_pago: 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta' | 'otro';
+  condicion?: 'debito' | 'credito';
+  fecha_vencimiento?: string;
   categoria?: string;
   referencia?: string;
   created_by?: string;
@@ -295,6 +294,199 @@ export interface NuevaVentaItem {
   precio_unitario: number;
   subtotal: number;
   lotes_disponibles?: Lote[];
+  tasa_iva_porcentaje?: number;
+}
+
+// ============================================================
+// NUEVAS INTERFACES - MÓDULO CONFIGURACIÓN (004)
+// ============================================================
+
+export interface UnidadMedida {
+  id: string;
+  nombre: string;
+  abreviatura: string;
+  activo: boolean;
+  created_at: string;
+}
+
+export interface Clasificacion {
+  id: string;
+  nombre: string;
+  aparece_en_factura: boolean;
+  tiene_stock: boolean;
+  usa_en_produccion: boolean;
+  activo: boolean;
+  created_at: string;
+}
+
+export interface TasaIva {
+  id: string;
+  nombre: string;
+  porcentaje: number;
+  activo: boolean;
+  created_at: string;
+}
+
+export interface ListaPrecios {
+  id: string;
+  nombre: string;
+  moneda: 'PYG' | 'USD';
+  aplica_iva: boolean;
+  activo: boolean;
+  created_at: string;
+}
+
+export interface Marca {
+  id: string;
+  nombre: string;
+  activo: boolean;
+  created_at: string;
+  lineas?: Linea[];
+}
+
+export interface Linea {
+  id: string;
+  marca_id: string;
+  marca?: Marca;
+  nombre: string;
+  activo: boolean;
+  created_at: string;
+  grupos?: Grupo[];
+}
+
+export interface Grupo {
+  id: string;
+  linea_id: string;
+  linea?: Linea;
+  nombre: string;
+  activo: boolean;
+  created_at: string;
+}
+
+export interface Banco {
+  id: string;
+  nombre: string;
+  activo: boolean;
+  created_at: string;
+}
+
+export interface CondicionVenta {
+  id: string;
+  nombre: string;
+  plazo_dias: number;
+  cantidad_cuotas: number;
+  activo: boolean;
+  created_at: string;
+}
+
+export interface Vendedor {
+  id: string;
+  nombre: string;
+  telefono?: string;
+  email?: string;
+  activo: boolean;
+  created_at: string;
+}
+
+export interface EmpresaConfig {
+  id: number;
+  nombre: string;
+  ruc: string;
+  direccion?: string;
+  telefono?: string;
+  timbrado?: string;
+  punto_expedicion?: string;
+  timbrado_desde?: string;
+  timbrado_hasta?: string;
+  actividad_comercial?: string;
+  email?: string;
+  updated_at: string;
+}
+
+export interface ProductoPrecio {
+  id: string;
+  producto_id: string;
+  lista_precios_id: string;
+  lista_precios?: ListaPrecios;
+  precio: number;
+}
+
+export interface CompraCuota {
+  id: string;
+  compra_id: string;
+  numero_cuota: number;
+  fecha_vencimiento: string;
+  monto: number;
+  monto_pagado: number;
+  estado: 'pendiente' | 'pagada' | 'vencida';
+  created_at: string;
+}
+
+export interface Cobro {
+  id: string;
+  numero: string;
+  fecha: string;
+  cliente_id?: string;
+  cliente?: Cliente;
+  concepto?: string;
+  total_facturas: number;
+  total_retenciones: number;
+  total_cobrado: number;
+  estado: 'registrado' | 'anulado';
+  notas?: string;
+  created_by?: string;
+  created_at: string;
+  cobro_facturas?: CobroFactura[];
+  cobro_retenciones?: CobroRetencion[];
+  cobro_medios_pago?: CobroMedioPago[];
+}
+
+export interface CobroFactura {
+  id: string;
+  cobro_id: string;
+  venta_id: string;
+  venta?: Venta;
+  monto_aplicado: number;
+}
+
+export interface CobroRetencion {
+  id: string;
+  cobro_id: string;
+  numero_retencion?: string;
+  concepto?: string;
+  monto: number;
+}
+
+export interface CobroMedioPago {
+  id: string;
+  cobro_id: string;
+  tipo: 'efectivo' | 'transferencia' | 'cheque_dia' | 'cheque_diferido' | 'tarjeta' | 'otro';
+  monto: number;
+  numero_cheque?: string;
+  banco_id?: string;
+  banco?: Banco;
+  fecha_cheque?: string;
+  numero_transaccion?: string;
+}
+
+export interface Comision {
+  id: string;
+  venta_id?: string;
+  venta?: Venta;
+  vendedor_id?: string;
+  vendedor?: Vendedor;
+  cliente_id?: string;
+  cliente?: Cliente;
+  producto_id?: string;
+  producto?: Producto;
+  fecha: string;
+  precio_sin_iva: number;
+  cantidad: number;
+  porcentaje: number;
+  monto: number;
+  estado: 'pendiente' | 'pagada';
+  fecha_pago?: string;
+  created_at: string;
 }
 
 export interface DashboardStats {

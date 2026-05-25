@@ -8,7 +8,7 @@ import { formatCurrency, calcularCuotas, formatDate } from '@/lib/utils';
 import { Plus, Trash2, ShoppingCart, Loader2, ArrowLeft, Search, Printer, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
-import type { Cliente, Producto, Lote, NuevaVentaItem } from '@/lib/types';
+import type { Cliente, Producto, Lote, NuevaVentaItem, EmpresaConfig } from '@/lib/types';
 
 export default function NuevaVentaPage() {
   const router = useRouter();
@@ -16,7 +16,6 @@ export default function NuevaVentaPage() {
 
   const [clientes, setClientes] = useState<Cliente[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
-  const [condiciones, setCondiciones] = useState<Array<{ id: string; plazo_dias: number; cantidad_cuotas: number }>>([]);
   const [clienteId, setClienteId] = useState('');
   const [clienteSeleccionado, setClienteSeleccionado] = useState<Cliente | null>(null);
   const [items, setItems] = useState<NuevaVentaItem[]>([]);
@@ -28,6 +27,9 @@ export default function NuevaVentaPage() {
   const [puntoVenta, setPuntoVenta] = useState('');
   const [notas, setNotas] = useState('');
   const [timbrado, setTimbrado] = useState('');
+  const [tasaIva, setTasaIva] = useState<10 | 5 | 0>(10);
+  const [notaRemision, setNotaRemision] = useState('');
+  const [empresaConfig, setEmpresaConfig] = useState<EmpresaConfig | null>(null);
   const [ventaConfirmada, setVentaConfirmada] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [buscarProducto, setBuscarProducto] = useState('');
@@ -39,18 +41,21 @@ export default function NuevaVentaPage() {
   }, []);
 
   async function loadData() {
-    const [clientesRes, productosRes, condicionesRes] = await Promise.all([
-      supabase.from('clientes').select('*').eq('activo', true).order('nombre'),
+    const [clientesRes, productosRes, empresaRes] = await Promise.all([
+      supabase.from('clientes').select('*, lista_precios_id, vendedor_id').eq('activo', true).order('nombre'),
       supabase.from('productos')
-        .select('*, lotes(id, numero_lote, fecha_vencimiento, stock_actual)')
+        .select('*, lotes(id, numero_lote, fecha_vencimiento, stock_actual), clasificaciones(aparece_en_factura), tasa_iva_ref:tasas_iva(porcentaje), producto_precios(*)')
         .eq('activo', true)
+        .gt('stock_actual', 0)
         .order('nombre'),
-      supabase.from('condiciones_venta').select('id, plazo_dias, cantidad_cuotas').eq('activo', true),
+      supabase.from('empresa_config').select('*').eq('id', 1).single(),
     ]);
     setClientes(clientesRes.data as Cliente[] || []);
-    setCondiciones(condicionesRes.data || []);
-    const prods = (productosRes.data || []) as Producto[];
-    // Ordenar lotes por FEFO (fecha vencimiento más próxima primero)
+    const prods = ((productosRes.data || []) as Producto[]).filter(p => {
+      const clas = (p as any).clasificaciones;
+      return !clas || clas.aparece_en_factura !== false;
+    });
+    // Ordenar lotes FEFO
     prods.forEach(p => {
       if (p.lotes) {
         p.lotes = p.lotes
@@ -63,56 +68,50 @@ export default function NuevaVentaPage() {
       }
     });
     setProductos(prods);
+    if (empresaRes.data) setEmpresaConfig(empresaRes.data as EmpresaConfig);
+    if (empresaRes.data?.timbrado) setTimbrado(empresaRes.data.timbrado);
   }
 
   function handleClienteChange(id: string) {
     setClienteId(id);
-    const cliente = clientes.find(c => c.id === id) || null;
-    setClienteSeleccionado(cliente);
-    if (cliente?.condicion_venta_id) {
-      const condicion = condiciones.find(c => c.id === cliente.condicion_venta_id);
-      if (condicion) {
-        setCondicionPago(condicion.plazo_dias > 0 ? 'credito' : 'contado');
-        setPlazoDias(condicion.plazo_dias || 30);
-        setCantidadCuotas(condicion.cantidad_cuotas || 1);
-      }
-    }
+    const cli = clientes.find(c => c.id === id) || null;
+    setClienteSeleccionado(cli);
   }
 
   function buscarProductos(term: string) {
-    const facturables = productos.filter(p =>
-      p.clasificacion === 'SERVICIO' || (p.clasificacion === 'MERCADERIA' && p.stock_actual > 0)
-    );
     setBuscarProducto(term);
     if (!term) {
-      setProductosFiltrados(facturables.slice(0, 12));
+      setProductosFiltrados(productos.slice(0, 12));
       return;
     }
     setProductosFiltrados(
-      facturables.filter(p =>
+      productos.filter(p =>
         p.nombre.toLowerCase().includes(term.toLowerCase()) ||
-        p.sku.toLowerCase().includes(term.toLowerCase()) ||
-        (p.codigo_barras || '').includes(term)
+        p.sku.toLowerCase().includes(term.toLowerCase())
       ).slice(0, 12)
     );
   }
 
   function agregarProducto(producto: Producto) {
-    if (!(producto.clasificacion === 'MERCADERIA' || producto.clasificacion === 'SERVICIO')) {
-      toast.error('Solo Mercadería o Servicio pueden facturarse.');
-      return;
-    }
     const loteFefo = producto.lotes?.[0];
+    // Precio: si el cliente tiene lista, buscar en producto_precios
+    const listaId = (clienteSeleccionado as any)?.lista_precios_id;
+    const precioLista = listaId
+      ? (producto as any).producto_precios?.find((pp: any) => pp.lista_precios_id === listaId)?.precio
+      : null;
+    const precioBase = precioLista ?? producto.precio_venta;
+    const taxaPct = (producto as any).tasa_iva_ref?.porcentaje ?? 10;
     const nuevo: NuevaVentaItem = {
       producto_id: producto.id,
       producto_nombre: `${producto.sku} - ${producto.nombre}`,
-      lote_id: producto.control_lote ? loteFefo?.id : undefined,
-      numero_lote: producto.control_lote ? loteFefo?.numero_lote : undefined,
-      fecha_vencimiento: producto.control_lote ? loteFefo?.fecha_vencimiento : undefined,
+      lote_id: loteFefo?.id,
+      numero_lote: loteFefo?.numero_lote,
+      fecha_vencimiento: loteFefo?.fecha_vencimiento,
       cantidad: 1,
-      precio_unitario: producto.precio_venta,
-      subtotal: producto.precio_venta,
+      precio_unitario: precioBase,
+      subtotal: precioBase,
       lotes_disponibles: producto.lotes,
+      tasa_iva_porcentaje: taxaPct,
     };
     setItems(prev => [...prev, nuevo]);
     setBuscarProducto('');
@@ -154,17 +153,18 @@ export default function NuevaVentaPage() {
   async function confirmarVenta() {
     if (!clienteId) { toast.error('Seleccioná un cliente'); return; }
     if (items.length === 0) { toast.error('Agregá al menos un producto'); return; }
-    if (condicionPago === 'credito' && total > creditoDisponible) {
-      toast(`Venta supera el límite de crédito. Disponible: ${formatCurrency(creditoDisponible)}`, { icon: '⚠️' });
+    if (condicionPago === 'credito' && total > creditoDisponible && creditoDisponible > 0) {
+      toast('⚠️ El cliente supera su límite de crédito. Disponible: ' + formatCurrency(creditoDisponible), { icon: '⚠️', style: { background: '#fef9c3', color: '#854d0e' } });
+      // No bloqueamos, solo advertimos
     }
     // Validar stock
     for (const item of items) {
       const prod = productos.find(p => p.id === item.producto_id);
-      if (prod && prod.clasificacion !== 'SERVICIO' && item.cantidad > prod.stock_actual) {
+      if (prod && item.cantidad > prod.stock_actual) {
         toast.error(`Stock insuficiente para ${prod.nombre}. Disponible: ${prod.stock_actual}`);
         return;
       }
-      if (item.lote_id && prod?.lotes && prod.clasificacion !== 'SERVICIO') {
+      if (item.lote_id && prod?.lotes) {
         const lote = prod.lotes.find(l => l.id === item.lote_id);
         if (lote && item.cantidad > lote.stock_actual) {
           toast.error(`Stock insuficiente en lote ${lote.numero_lote}. Disponible: ${lote.stock_actual}`);
@@ -194,12 +194,15 @@ export default function NuevaVentaPage() {
         estado: condicionPago === 'contado' ? 'pagado' : 'pendiente',
         numero_factura: numeroFactura || null,
         punto_venta: puntoVenta || null,
+        timbrado: timbrado || null,
+        tasa_iva: tasaIva,
+        nota_remision: notaRemision || null,
         notas: notas || null,
       }).select().single();
 
       if (ventaErr) throw ventaErr;
 
-      // Crear items
+      // Crear items con IVA por ítem
       const ventaItemsData = items.map(item => ({
         venta_id: venta.id,
         producto_id: item.producto_id,
@@ -210,8 +213,32 @@ export default function NuevaVentaPage() {
         cantidad: item.cantidad,
         precio_unitario: item.precio_unitario,
         subtotal: item.subtotal,
+        tasa_iva_porcentaje: (item as any).tasa_iva_porcentaje ?? 10,
       }));
-      const { data: ventaItemsInsertados } = await supabase.from('venta_items').insert(ventaItemsData).select('id, producto_id, cantidad, precio_unitario');
+      await supabase.from('venta_items').insert(ventaItemsData);
+
+      // Comisiones si cliente tiene vendedor y productos con comisión
+      const vendedorId = (clienteSeleccionado as any)?.vendedor_id;
+      if (vendedorId) {
+        const comisionesData: any[] = [];
+        for (const item of items) {
+          const prod = productos.find(p => p.id === item.producto_id);
+          const pct = (prod as any)?.porcentaje_comision || 0;
+          if (pct > 0) {
+            const iva = (item as any).tasa_iva_porcentaje ?? 10;
+            const precioSinIva = iva > 0 ? item.precio_unitario / (1 + iva / 100) : item.precio_unitario;
+            comisionesData.push({
+              venta_id: venta.id, vendedor_id: vendedorId,
+              cliente_id: clienteId, producto_id: item.producto_id,
+              fecha: new Date().toISOString().split('T')[0],
+              precio_sin_iva: precioSinIva, cantidad: item.cantidad,
+              porcentaje: pct, monto: precioSinIva * item.cantidad * pct / 100,
+              estado: 'pendiente',
+            });
+          }
+        }
+        if (comisionesData.length > 0) await supabase.from('comisiones').insert(comisionesData);
+      }
 
       // Crear cuotas si es crédito
       if (condicionPago === 'credito' && cuotasPreview.length > 0) {
@@ -230,60 +257,25 @@ export default function NuevaVentaPage() {
       for (const item of items) {
         // Producto
         const prod = productos.find(p => p.id === item.producto_id);
-        if (prod && prod.clasificacion !== 'SERVICIO') {
+        if (prod) {
           await supabase.from('productos').update({ stock_actual: prod.stock_actual - item.cantidad }).eq('id', item.producto_id);
         }
-
-        // Generar comisiones por ítem
-        if (clienteSeleccionado?.vendedor_id && ventaItemsInsertados?.length) {
-          const comisionesData = ventaItemsInsertados
-            .map((it) => {
-              const producto = productos.find((p) => p.id === it.producto_id);
-              if (!producto || !producto.porcentaje_comision || producto.porcentaje_comision <= 0) return null;
-              const iva = Number(producto.iva_porcentaje || 0);
-              const precioSinIva = iva > 0
-                ? Number(it.precio_unitario) / (1 + iva / 100)
-                : Number(it.precio_unitario);
-              const monto = precioSinIva * Number(it.cantidad) * (Number(producto.porcentaje_comision) / 100);
-              if (monto <= 0) return null;
-              return {
-                venta_id: venta.id,
-                venta_item_id: it.id,
-                vendedor_id: clienteSeleccionado.vendedor_id,
-                cliente_id: clienteId,
-                producto_id: it.producto_id,
-                numero_factura: numeroFactura || venta.numero,
-                fecha: new Date().toISOString().slice(0, 10),
-                precio_sin_iva: precioSinIva,
-                cantidad: it.cantidad,
-                porcentaje: producto.porcentaje_comision,
-                monto,
-                estado: 'pendiente',
-              };
-            })
-            .filter(Boolean);
-          if (comisionesData.length > 0) {
-            await supabase.from('comisiones').insert(comisionesData as any[]);
-          }
-        }
         // Lote
-        if (item.lote_id && prod?.lotes && prod.clasificacion !== 'SERVICIO') {
+        if (item.lote_id && prod?.lotes) {
           const lote = prod.lotes.find(l => l.id === item.lote_id);
           if (lote) {
             await supabase.from('lotes').update({ stock_actual: lote.stock_actual - item.cantidad }).eq('id', item.lote_id);
           }
         }
         // Movimiento de stock
-        if (prod?.clasificacion !== 'SERVICIO') {
-          await supabase.from('movimientos_stock').insert({
-            producto_id: item.producto_id,
-            lote_id: item.lote_id || null,
-            tipo: 'salida',
-            cantidad: -item.cantidad,
-            referencia_tipo: 'venta',
-            referencia_id: venta.id,
-          });
-        }
+        await supabase.from('movimientos_stock').insert({
+          producto_id: item.producto_id,
+          lote_id: item.lote_id || null,
+          tipo: 'salida',
+          cantidad: -item.cantidad,
+          referencia_tipo: 'venta',
+          referencia_id: venta.id,
+        });
       }
 
       // Actualizar saldo del cliente si es crédito
@@ -312,7 +304,9 @@ export default function NuevaVentaPage() {
     setDescuento(0);
     setNumeroFactura('');
     setPuntoVenta('');
-    setTimbrado('');
+    setTimbrado(empresaConfig?.timbrado || '');
+    setTasaIva(10);
+    setNotaRemision('');
     setNotas('');
     setVentaConfirmada(null);
     setBuscarProducto('');
@@ -413,9 +407,9 @@ export default function NuevaVentaPage() {
         'body{font-family:monospace;font-size:12px;width:300px;padding:10px;color:#000}' +
         '.line{border-top:1px dashed #000;margin:6px 0}' +
         '@media print{@page{margin:0;size:80mm auto}}</style></head><body>' +
-        '<div style="text-align:center;font-size:14px;font-weight:bold">EDULCORANTES S.A.</div>' +
-        '<div style="text-align:center;font-size:10px">RUC: 80012345-6</div>' +
-        '<div style="text-align:center;font-size:10px">Asunción, Paraguay</div>' +
+        '<div style="text-align:center;font-size:14px;font-weight:bold">' + (empresaConfig?.nombre || 'EMPRESA') + '</div>' +
+        '<div style="text-align:center;font-size:10px">RUC: ' + (empresaConfig?.ruc || '') + '</div>' +
+        '<div style="text-align:center;font-size:10px">' + (empresaConfig?.direccion || '') + '</div>' +
         '<div class="line"></div>' +
         '<div style="text-align:center;font-weight:bold">TICKET DE VENTA</div>' +
         '<div style="text-align:center;font-size:10px">' + ventaNum + '</div>' +
@@ -522,11 +516,6 @@ export default function NuevaVentaPage() {
                       {formatCurrency(creditoDisponible)}
                     </span>
                   </div>
-                  {condicionPago === 'credito' && total > creditoDisponible && (
-                    <div className="text-yellow-700 dark:text-yellow-300 text-xs font-semibold pt-1">
-                      Aviso: la venta supera el límite de crédito, pero puede registrarse.
-                    </div>
-                  )}
                 </div>
               )}
             </div>
@@ -535,7 +524,7 @@ export default function NuevaVentaPage() {
             <div className="card p-5">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="section-title">Productos</h2>
-                <button onClick={() => { setMostrarBuscador(true); setProductosFiltrados(productos.filter(p => p.clasificacion === 'SERVICIO' || (p.clasificacion === 'MERCADERIA' && p.stock_actual > 0)).slice(0, 12)); }} className="btn-primary flex items-center gap-2 text-xs py-1.5">
+                <button onClick={() => { setMostrarBuscador(true); setProductosFiltrados(productos.slice(0, 12)); }} className="btn-primary flex items-center gap-2 text-xs py-1.5">
                   <Plus className="w-3.5 h-3.5" /> Agregar producto
                 </button>
               </div>
@@ -563,7 +552,6 @@ export default function NuevaVentaPage() {
                           <div>
                             <span className="font-mono text-xs text-blue-600 mr-2">{p.sku}</span>
                             <span className="font-medium">{p.nombre}</span>
-                            <span className="ml-2 text-xs text-gray-400">{p.clasificacion}</span>
                           </div>
                           <div className="text-right">
                             <div className="font-semibold text-emerald-600">{formatCurrency(p.precio_venta)}</div>
@@ -663,6 +651,10 @@ export default function NuevaVentaPage() {
                 <div>
                   <label className="label">N° de timbrado</label>
                   <input className="input" placeholder="12345678" value={timbrado} onChange={e => setTimbrado(e.target.value)} />
+                </div>
+                <div>
+                  <label className="label">Nota de remisión</label>
+                  <input className="input" placeholder="NR-0001-00000001" value={notaRemision} onChange={e => setNotaRemision(e.target.value)} />
                 </div>
               </div>
               <div className="mt-3">

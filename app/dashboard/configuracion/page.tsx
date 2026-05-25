@@ -1,224 +1,69 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import Link from 'next/link';
 import { Header } from '@/components/Header';
-import { createClient } from '@/lib/supabase';
-import { Loader2, Plus, Save } from 'lucide-react';
-import toast from 'react-hot-toast';
+import {
+  Building2, Ruler, Tag, Percent, List, Trademark,
+  Handshake, UserCheck, Landmark, Settings2,
+} from 'lucide-react';
 
-interface Unidad {
-  id: string;
-  nombre: string;
-  abreviatura: string;
-  activo: boolean;
-}
+const configCards = [
+  { href: '/dashboard/configuracion/empresa', icon: Building2, label: 'Empresa', desc: 'Datos fiscales, timbrado y punto de expedición', color: 'blue' },
+  { href: '/dashboard/configuracion/unidades', icon: Ruler, label: 'Unidades de Medida', desc: 'Unidad, kg, lts, cjs, etc.', color: 'emerald' },
+  { href: '/dashboard/configuracion/clasificaciones', icon: Tag, label: 'Clasificaciones', desc: 'Mercadería, Materia Prima, Servicio...', color: 'purple' },
+  { href: '/dashboard/configuracion/tasas-iva', icon: Percent, label: 'Tasas de IVA', desc: 'Exento, IVA 5%, IVA 10%', color: 'orange' },
+  { href: '/dashboard/configuracion/listas-precios', icon: List, label: 'Listas de Precios', desc: 'Consumo, Distribuidor, HORECA...', color: 'teal' },
+  { href: '/dashboard/configuracion/marcas', icon: Trademark, label: 'Marcas / Líneas / Grupos', desc: 'Jerarquía de agrupación de productos', color: 'pink' },
+  { href: '/dashboard/configuracion/condiciones', icon: Handshake, label: 'Condiciones de Venta', desc: 'Contado, 30/60/90 días, cuotas...', color: 'yellow' },
+  { href: '/dashboard/configuracion/vendedores', icon: UserCheck, label: 'Vendedores', desc: 'Equipo comercial y comisiones', color: 'cyan' },
+  { href: '/dashboard/configuracion/bancos', icon: Landmark, label: 'Bancos', desc: 'Entidades bancarias para cheques', color: 'indigo' },
+];
 
-interface Clasificacion {
-  id: string;
-  codigo: string;
-  nombre: string;
-  aparece_en_factura: boolean;
-  tiene_stock: boolean;
-  usa_en_produccion: boolean;
-  requiere_lote: boolean;
-  requiere_vencimiento: boolean;
-  activo: boolean;
-}
-
-interface CondicionVenta {
-  id: string;
-  nombre: string;
-  plazo_dias: number;
-  cantidad_cuotas: number;
-  activo: boolean;
-}
-
-interface Vendedor {
-  id: string;
-  nombre: string;
-  telefono: string | null;
-  email: string | null;
-  activo: boolean;
-}
+const colorMap: Record<string, string> = {
+  blue: 'bg-blue-50 dark:bg-blue-900/20 text-blue-600 dark:text-blue-400 group-hover:bg-blue-100 dark:group-hover:bg-blue-900/30',
+  emerald: 'bg-emerald-50 dark:bg-emerald-900/20 text-emerald-600 dark:text-emerald-400 group-hover:bg-emerald-100',
+  purple: 'bg-purple-50 dark:bg-purple-900/20 text-purple-600 dark:text-purple-400 group-hover:bg-purple-100',
+  orange: 'bg-orange-50 dark:bg-orange-900/20 text-orange-600 dark:text-orange-400 group-hover:bg-orange-100',
+  teal: 'bg-teal-50 dark:bg-teal-900/20 text-teal-600 dark:text-teal-400 group-hover:bg-teal-100',
+  pink: 'bg-pink-50 dark:bg-pink-900/20 text-pink-600 dark:text-pink-400 group-hover:bg-pink-100',
+  yellow: 'bg-yellow-50 dark:bg-yellow-900/20 text-yellow-600 dark:text-yellow-400 group-hover:bg-yellow-100',
+  cyan: 'bg-cyan-50 dark:bg-cyan-900/20 text-cyan-600 dark:text-cyan-400 group-hover:bg-cyan-100',
+  indigo: 'bg-indigo-50 dark:bg-indigo-900/20 text-indigo-600 dark:text-indigo-400 group-hover:bg-indigo-100',
+};
 
 export default function ConfiguracionPage() {
-  const supabase = createClient();
-  const [loading, setLoading] = useState(true);
-  const [saving, setSaving] = useState(false);
-  const [unidades, setUnidades] = useState<Unidad[]>([]);
-  const [clasificaciones, setClasificaciones] = useState<Clasificacion[]>([]);
-  const [condiciones, setCondiciones] = useState<CondicionVenta[]>([]);
-  const [vendedores, setVendedores] = useState<Vendedor[]>([]);
-  const [nuevaUnidad, setNuevaUnidad] = useState({ nombre: '', abreviatura: '' });
-  const [nuevaCondicion, setNuevaCondicion] = useState({ nombre: '', plazo_dias: 0, cantidad_cuotas: 1 });
-  const [nuevoVendedor, setNuevoVendedor] = useState({ nombre: '', telefono: '', email: '' });
-
-  const loadData = useCallback(async () => {
-    setLoading(true);
-    const [u, c, cv, vs] = await Promise.all([
-      supabase.from('unidades_medida').select('*').order('nombre'),
-      supabase.from('clasificaciones_producto').select('*').order('nombre'),
-      supabase.from('condiciones_venta').select('*').order('plazo_dias'),
-      supabase.from('vendedores').select('*').order('nombre'),
-    ]);
-    setUnidades((u.data || []) as Unidad[]);
-    setClasificaciones((c.data || []) as Clasificacion[]);
-    setCondiciones((cv.data || []) as CondicionVenta[]);
-    setVendedores((vs.data || []) as Vendedor[]);
-    setLoading(false);
-  }, [supabase]);
-
-  useEffect(() => { loadData(); }, [loadData]);
-
-  async function addUnidad() {
-    if (!nuevaUnidad.nombre || !nuevaUnidad.abreviatura) return;
-    setSaving(true);
-    const { error } = await supabase.from('unidades_medida').insert({
-      nombre: nuevaUnidad.nombre,
-      abreviatura: nuevaUnidad.abreviatura.toLowerCase(),
-      activo: true,
-    });
-    setSaving(false);
-    if (error) return toast.error(error.message);
-    setNuevaUnidad({ nombre: '', abreviatura: '' });
-    toast.success('Unidad creada');
-    loadData();
-  }
-
-  async function saveClasificacion(row: Clasificacion) {
-    const { error } = await supabase.from('clasificaciones_producto').update({
-      aparece_en_factura: row.aparece_en_factura,
-      tiene_stock: row.tiene_stock,
-      usa_en_produccion: row.usa_en_produccion,
-      requiere_lote: row.requiere_lote,
-      requiere_vencimiento: row.requiere_vencimiento,
-      activo: row.activo,
-    }).eq('id', row.id);
-    if (error) return toast.error(error.message);
-    toast.success(`Clasificación ${row.nombre} actualizada`);
-  }
-
-  async function addCondicion() {
-    if (!nuevaCondicion.nombre) return;
-    setSaving(true);
-    const { error } = await supabase.from('condiciones_venta').insert({
-      nombre: nuevaCondicion.nombre,
-      plazo_dias: nuevaCondicion.plazo_dias || 0,
-      cantidad_cuotas: nuevaCondicion.cantidad_cuotas || 1,
-      activo: true,
-    });
-    setSaving(false);
-    if (error) return toast.error(error.message);
-    setNuevaCondicion({ nombre: '', plazo_dias: 0, cantidad_cuotas: 1 });
-    toast.success('Condición creada');
-    loadData();
-  }
-
-  async function addVendedor() {
-    if (!nuevoVendedor.nombre) return;
-    setSaving(true);
-    const { error } = await supabase.from('vendedores').insert({
-      nombre: nuevoVendedor.nombre,
-      telefono: nuevoVendedor.telefono || null,
-      email: nuevoVendedor.email || null,
-      activo: true,
-    });
-    setSaving(false);
-    if (error) return toast.error(error.message);
-    setNuevoVendedor({ nombre: '', telefono: '', email: '' });
-    toast.success('Vendedor creado');
-    loadData();
-  }
-
-  if (loading) {
-    return (
-      <>
-        <Header title="Configuración" subtitle="Maestros administrables del sistema" />
-        <div className="p-10 flex items-center justify-center"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
-      </>
-    );
-  }
-
   return (
-    <>
-      <Header title="Configuración" subtitle="Maestros administrables del sistema" />
-      <div className="p-6 space-y-6">
-        <div className="card p-5 space-y-3">
-          <h2 className="section-title">Unidades de medida</h2>
-          <div className="grid grid-cols-3 gap-2">
-            <input className="input" placeholder="Nombre" value={nuevaUnidad.nombre} onChange={(e) => setNuevaUnidad((s) => ({ ...s, nombre: e.target.value }))} />
-            <input className="input" placeholder="Abreviatura" value={nuevaUnidad.abreviatura} onChange={(e) => setNuevaUnidad((s) => ({ ...s, abreviatura: e.target.value }))} />
-            <button onClick={addUnidad} disabled={saving} className="btn-primary flex items-center justify-center gap-2"><Plus className="w-4 h-4" /> Agregar</button>
+    <div className="flex flex-col min-h-full">
+      <Header title="Configuración del Sistema" />
+      <div className="p-6">
+        <div className="flex items-center gap-3 mb-6">
+          <div className="p-2 bg-gray-100 dark:bg-gray-800 rounded-lg">
+            <Settings2 className="w-5 h-5 text-gray-500 dark:text-gray-400" />
           </div>
-          <div className="grid grid-cols-2 gap-2">
-            {unidades.map((u) => <div key={u.id} className="text-sm border rounded-lg px-3 py-2">{u.nombre} <span className="text-gray-500">({u.abreviatura})</span></div>)}
+          <div>
+            <h2 className="text-lg font-semibold text-gray-900 dark:text-white">Tablas maestras y parámetros</h2>
+            <p className="text-sm text-gray-500 dark:text-gray-400">Administrá la información base del sistema</p>
           </div>
         </div>
 
-        <div className="card p-5 space-y-3">
-          <h2 className="section-title">Clasificación de productos</h2>
-          <div className="space-y-2">
-            {clasificaciones.map((row) => (
-              <div key={row.id} className="border rounded-lg p-3">
-                <div className="font-semibold mb-2">{row.nombre}</div>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-2 text-sm">
-                  {([
-                    ['aparece_en_factura', 'Aparece en factura'],
-                    ['tiene_stock', 'Tiene stock'],
-                    ['usa_en_produccion', 'Se usa en producción'],
-                    ['requiere_lote', 'Requiere lote'],
-                    ['requiere_vencimiento', 'Requiere vencimiento'],
-                    ['activo', 'Activo'],
-                  ] as const).map(([field, label]) => (
-                    <label key={field} className="flex items-center gap-2">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(row[field])}
-                        onChange={(e) => setClasificaciones((prev) => prev.map((c) => c.id === row.id ? { ...c, [field]: e.target.checked } : c))}
-                      />
-                      {label}
-                    </label>
-                  ))}
-                </div>
-                <button onClick={() => saveClasificacion(row)} className="btn-secondary mt-3 text-xs py-1 px-3 flex items-center gap-1">
-                  <Save className="w-3.5 h-3.5" /> Guardar cambios
-                </button>
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+          {configCards.map(({ href, icon: Icon, label, desc, color }) => (
+            <Link
+              key={href}
+              href={href}
+              className="group card p-5 flex items-start gap-4 hover:shadow-md transition-all"
+            >
+              <div className={`p-3 rounded-xl transition-colors ${colorMap[color]}`}>
+                <Icon className="w-5 h-5" />
               </div>
-            ))}
-          </div>
-        </div>
-
-        <div className="card p-5 space-y-3">
-          <h2 className="section-title">Condiciones de venta</h2>
-          <div className="grid grid-cols-4 gap-2">
-            <input className="input" placeholder="Nombre" value={nuevaCondicion.nombre} onChange={(e) => setNuevaCondicion((s) => ({ ...s, nombre: e.target.value }))} />
-            <input type="number" className="input" placeholder="Plazo días" value={nuevaCondicion.plazo_dias} onChange={(e) => setNuevaCondicion((s) => ({ ...s, plazo_dias: parseInt(e.target.value, 10) || 0 }))} />
-            <input type="number" className="input" placeholder="Cuotas" value={nuevaCondicion.cantidad_cuotas} onChange={(e) => setNuevaCondicion((s) => ({ ...s, cantidad_cuotas: parseInt(e.target.value, 10) || 1 }))} />
-            <button onClick={addCondicion} disabled={saving} className="btn-primary flex items-center justify-center gap-2"><Plus className="w-4 h-4" /> Agregar</button>
-          </div>
-          <div className="grid grid-cols-2 gap-2">
-            {condiciones.map((c) => <div key={c.id} className="text-sm border rounded-lg px-3 py-2">{c.nombre} <span className="text-gray-500">({c.plazo_dias} días / {c.cantidad_cuotas} cuota/s)</span></div>)}
-          </div>
-        </div>
-
-        <div className="card p-5 space-y-3">
-          <h2 className="section-title">Vendedores</h2>
-          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
-            <input className="input" placeholder="Nombre" value={nuevoVendedor.nombre} onChange={(e) => setNuevoVendedor((s) => ({ ...s, nombre: e.target.value }))} />
-            <input className="input" placeholder="Teléfono" value={nuevoVendedor.telefono} onChange={(e) => setNuevoVendedor((s) => ({ ...s, telefono: e.target.value }))} />
-            <input className="input" placeholder="Email" value={nuevoVendedor.email} onChange={(e) => setNuevoVendedor((s) => ({ ...s, email: e.target.value }))} />
-            <button onClick={addVendedor} disabled={saving} className="btn-primary flex items-center justify-center gap-2"><Plus className="w-4 h-4" /> Agregar</button>
-          </div>
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
-            {vendedores.map((v) => (
-              <div key={v.id} className="text-sm border rounded-lg px-3 py-2">
-                <div className="font-semibold">{v.nombre}</div>
-                <div className="text-gray-500">{v.telefono || '-'} · {v.email || '-'}</div>
+              <div className="min-w-0">
+                <p className="font-semibold text-gray-900 dark:text-white text-sm">{label}</p>
+                <p className="text-xs text-gray-500 dark:text-gray-400 mt-0.5 leading-relaxed">{desc}</p>
               </div>
-            ))}
-          </div>
+            </Link>
+          ))}
         </div>
       </div>
-    </>
+    </div>
   );
 }
