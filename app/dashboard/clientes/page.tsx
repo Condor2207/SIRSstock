@@ -18,11 +18,12 @@ export default function ClientesPage() {
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando] = useState<Cliente | null>(null);
   const [condicionesVenta, setCondicionesVenta] = useState<Array<{ id: string; nombre: string }>>([]);
+  const [vendedores, setVendedores] = useState<Array<{ id: string; nombre: string }>>([]);
   const [saving, setSaving] = useState(false);
   const [form, setForm] = useState({
     nombre: '', documento: '', tipo_documento: 'RUC',
     direccion: '', telefono: '', email: '',
-    limite_credito: '', condicion_venta_id: '', es_exterior: false, activo: true,
+    limite_credito: '', condicion_venta_id: '', vendedor_id: '', es_exterior: false, activo: true,
   });
 
   const loadClientes = useCallback(async () => {
@@ -36,11 +37,13 @@ export default function ClientesPage() {
   useEffect(() => {
     supabase.from('condiciones_venta').select('id, nombre').eq('activo', true).order('plazo_dias')
       .then(({ data }) => setCondicionesVenta(data || []));
+    supabase.from('vendedores').select('id, nombre').eq('activo', true).order('nombre')
+      .then(({ data }) => setVendedores(data || []));
   }, []);
 
   function openNew() {
     setEditando(null);
-    setForm({ nombre: '', documento: '', tipo_documento: 'RUC', direccion: '', telefono: '', email: '', limite_credito: '', condicion_venta_id: '', es_exterior: false, activo: true });
+    setForm({ nombre: '', documento: '', tipo_documento: 'RUC', direccion: '', telefono: '', email: '', limite_credito: '', condicion_venta_id: '', vendedor_id: '', es_exterior: false, activo: true });
     setShowModal(true);
   }
 
@@ -49,7 +52,7 @@ export default function ClientesPage() {
     setForm({
       nombre: c.nombre, documento: c.documento || '', tipo_documento: c.tipo_documento,
       direccion: c.direccion || '', telefono: c.telefono || '', email: c.email || '',
-      limite_credito: String(c.limite_credito), condicion_venta_id: c.condicion_venta_id || '', es_exterior: c.es_exterior || false, activo: c.activo,
+      limite_credito: String(c.limite_credito), condicion_venta_id: c.condicion_venta_id || '', vendedor_id: c.vendedor_id || '', es_exterior: c.es_exterior || false, activo: c.activo,
     });
     setShowModal(true);
   }
@@ -67,6 +70,7 @@ export default function ClientesPage() {
       telefono: form.telefono || null, email: form.email || null,
       limite_credito: parseFloat(form.limite_credito) || 0,
       condicion_venta_id: form.condicion_venta_id || null,
+      vendedor_id: form.vendedor_id || null,
       es_exterior: form.es_exterior,
       activo: form.activo,
     };
@@ -237,6 +241,13 @@ export default function ClientesPage() {
                 <select className="input" value={form.condicion_venta_id} onChange={e => setForm(f => ({ ...f, condicion_venta_id: e.target.value }))}>
                   <option value="">Sin condición</option>
                   {condicionesVenta.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
+                </select>
+              </div>
+              <div>
+                <label className="label">Vendedor asignado</label>
+                <select className="input" value={form.vendedor_id} onChange={e => setForm(f => ({ ...f, vendedor_id: e.target.value }))}>
+                  <option value="">Sin vendedor</option>
+                  {vendedores.map(v => <option key={v.id} value={v.id}>{v.nombre}</option>)}
                 </select>
               </div>
               <label className="flex items-center gap-2 cursor-pointer">
