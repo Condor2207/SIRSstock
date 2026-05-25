@@ -3,7 +3,7 @@
 import Link from 'next/link';
 import { Header } from '@/components/Header';
 import {
-  Building2, Ruler, Tag, Percent, List, Trademark,
+  Building2, Ruler, Tag, Percent, List,
   Handshake, UserCheck, Landmark, Settings2,
 } from 'lucide-react';
 
@@ -13,7 +13,7 @@ const configCards = [
   { href: '/dashboard/configuracion/clasificaciones', icon: Tag, label: 'Clasificaciones', desc: 'Mercadería, Materia Prima, Servicio...', color: 'purple' },
   { href: '/dashboard/configuracion/tasas-iva', icon: Percent, label: 'Tasas de IVA', desc: 'Exento, IVA 5%, IVA 10%', color: 'orange' },
   { href: '/dashboard/configuracion/listas-precios', icon: List, label: 'Listas de Precios', desc: 'Consumo, Distribuidor, HORECA...', color: 'teal' },
-  { href: '/dashboard/configuracion/marcas', icon: Trademark, label: 'Marcas / Líneas / Grupos', desc: 'Jerarquía de agrupación de productos', color: 'pink' },
+  { href: '/dashboard/configuracion/marcas', icon: Tag, label: 'Marcas / Líneas / Grupos', desc: 'Jerarquía de agrupación de productos', color: 'pink' },
   { href: '/dashboard/configuracion/condiciones', icon: Handshake, label: 'Condiciones de Venta', desc: 'Contado, 30/60/90 días, cuotas...', color: 'yellow' },
   { href: '/dashboard/configuracion/vendedores', icon: UserCheck, label: 'Vendedores', desc: 'Equipo comercial y comisiones', color: 'cyan' },
   { href: '/dashboard/configuracion/bancos', icon: Landmark, label: 'Bancos', desc: 'Entidades bancarias para cheques', color: 'indigo' },

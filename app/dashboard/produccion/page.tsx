@@ -52,7 +52,7 @@ export default function ProduccionPage() {
 
   useEffect(() => {
     load();
-    supabase.from('productos').select('id, sku, nombre, control_lote, stock_actual, clasificacion_id, plazo_vencimiento_meses, clasificaciones(nombre, usa_en_produccion, aparece_en_factura)').eq('activo', true).order('nombre').then(r => setProductos(r.data as Producto[] || []));
+    supabase.from('productos').select('id, sku, nombre, control_lote, stock_actual, clasificacion_id, plazo_vencimiento_meses, clasificaciones(nombre, usa_en_produccion, aparece_en_factura)').eq('activo', true).order('nombre').then(r => setProductos((r.data as unknown as Producto[]) || []));
     supabase.from('clasificaciones').select('*').then(r => setClasificaciones(r.data as Clasificacion[] || []));
   }, [load]);
 
