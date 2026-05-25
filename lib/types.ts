@@ -67,9 +67,19 @@ export interface Cliente {
   saldo_pendiente: number;
   es_exterior: boolean;
   condicion_venta_id?: string;
+  vendedor_id?: string;
   activo: boolean;
   created_at: string;
   updated_at: string;
+}
+
+export interface Vendedor {
+  id: string;
+  nombre: string;
+  telefono?: string;
+  email?: string;
+  activo: boolean;
+  created_at: string;
 }
 
 export interface Proveedor {
@@ -188,6 +198,24 @@ export interface VentaPago {
   referencia?: string;
   notas?: string;
   created_by?: string;
+  created_at: string;
+}
+
+export interface Comision {
+  id: string;
+  venta_id: string;
+  venta_item_id?: string;
+  vendedor_id: string;
+  cliente_id: string;
+  producto_id: string;
+  numero_factura?: string;
+  fecha: string;
+  precio_sin_iva: number;
+  cantidad: number;
+  porcentaje: number;
+  monto: number;
+  estado: 'pendiente' | 'pagada';
+  fecha_pago?: string;
   created_at: string;
 }
 

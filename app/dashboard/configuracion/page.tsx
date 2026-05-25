@@ -33,6 +33,14 @@ interface CondicionVenta {
   activo: boolean;
 }
 
+interface Vendedor {
+  id: string;
+  nombre: string;
+  telefono: string | null;
+  email: string | null;
+  activo: boolean;
+}
+
 export default function ConfiguracionPage() {
   const supabase = createClient();
   const [loading, setLoading] = useState(true);
@@ -40,19 +48,23 @@ export default function ConfiguracionPage() {
   const [unidades, setUnidades] = useState<Unidad[]>([]);
   const [clasificaciones, setClasificaciones] = useState<Clasificacion[]>([]);
   const [condiciones, setCondiciones] = useState<CondicionVenta[]>([]);
+  const [vendedores, setVendedores] = useState<Vendedor[]>([]);
   const [nuevaUnidad, setNuevaUnidad] = useState({ nombre: '', abreviatura: '' });
   const [nuevaCondicion, setNuevaCondicion] = useState({ nombre: '', plazo_dias: 0, cantidad_cuotas: 1 });
+  const [nuevoVendedor, setNuevoVendedor] = useState({ nombre: '', telefono: '', email: '' });
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const [u, c, cv] = await Promise.all([
+    const [u, c, cv, vs] = await Promise.all([
       supabase.from('unidades_medida').select('*').order('nombre'),
       supabase.from('clasificaciones_producto').select('*').order('nombre'),
       supabase.from('condiciones_venta').select('*').order('plazo_dias'),
+      supabase.from('vendedores').select('*').order('nombre'),
     ]);
     setUnidades((u.data || []) as Unidad[]);
     setClasificaciones((c.data || []) as Clasificacion[]);
     setCondiciones((cv.data || []) as CondicionVenta[]);
+    setVendedores((vs.data || []) as Vendedor[]);
     setLoading(false);
   }, [supabase]);
 
@@ -99,6 +111,22 @@ export default function ConfiguracionPage() {
     if (error) return toast.error(error.message);
     setNuevaCondicion({ nombre: '', plazo_dias: 0, cantidad_cuotas: 1 });
     toast.success('Condición creada');
+    loadData();
+  }
+
+  async function addVendedor() {
+    if (!nuevoVendedor.nombre) return;
+    setSaving(true);
+    const { error } = await supabase.from('vendedores').insert({
+      nombre: nuevoVendedor.nombre,
+      telefono: nuevoVendedor.telefono || null,
+      email: nuevoVendedor.email || null,
+      activo: true,
+    });
+    setSaving(false);
+    if (error) return toast.error(error.message);
+    setNuevoVendedor({ nombre: '', telefono: '', email: '' });
+    toast.success('Vendedor creado');
     loadData();
   }
 
@@ -170,6 +198,24 @@ export default function ConfiguracionPage() {
           </div>
           <div className="grid grid-cols-2 gap-2">
             {condiciones.map((c) => <div key={c.id} className="text-sm border rounded-lg px-3 py-2">{c.nombre} <span className="text-gray-500">({c.plazo_dias} días / {c.cantidad_cuotas} cuota/s)</span></div>)}
+          </div>
+        </div>
+
+        <div className="card p-5 space-y-3">
+          <h2 className="section-title">Vendedores</h2>
+          <div className="grid grid-cols-1 md:grid-cols-4 gap-2">
+            <input className="input" placeholder="Nombre" value={nuevoVendedor.nombre} onChange={(e) => setNuevoVendedor((s) => ({ ...s, nombre: e.target.value }))} />
+            <input className="input" placeholder="Teléfono" value={nuevoVendedor.telefono} onChange={(e) => setNuevoVendedor((s) => ({ ...s, telefono: e.target.value }))} />
+            <input className="input" placeholder="Email" value={nuevoVendedor.email} onChange={(e) => setNuevoVendedor((s) => ({ ...s, email: e.target.value }))} />
+            <button onClick={addVendedor} disabled={saving} className="btn-primary flex items-center justify-center gap-2"><Plus className="w-4 h-4" /> Agregar</button>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
+            {vendedores.map((v) => (
+              <div key={v.id} className="text-sm border rounded-lg px-3 py-2">
+                <div className="font-semibold">{v.nombre}</div>
+                <div className="text-gray-500">{v.telefono || '-'} · {v.email || '-'}</div>
+              </div>
+            ))}
           </div>
         </div>
       </div>

@@ -211,7 +211,7 @@ export default function NuevaVentaPage() {
         precio_unitario: item.precio_unitario,
         subtotal: item.subtotal,
       }));
-      await supabase.from('venta_items').insert(ventaItemsData);
+      const { data: ventaItemsInsertados } = await supabase.from('venta_items').insert(ventaItemsData).select('id, producto_id, cantidad, precio_unitario');
 
       // Crear cuotas si es crédito
       if (condicionPago === 'credito' && cuotasPreview.length > 0) {
@@ -232,6 +232,39 @@ export default function NuevaVentaPage() {
         const prod = productos.find(p => p.id === item.producto_id);
         if (prod && prod.clasificacion !== 'SERVICIO') {
           await supabase.from('productos').update({ stock_actual: prod.stock_actual - item.cantidad }).eq('id', item.producto_id);
+        }
+
+        // Generar comisiones por ítem
+        if (clienteSeleccionado?.vendedor_id && ventaItemsInsertados?.length) {
+          const comisionesData = ventaItemsInsertados
+            .map((it) => {
+              const producto = productos.find((p) => p.id === it.producto_id);
+              if (!producto || !producto.porcentaje_comision || producto.porcentaje_comision <= 0) return null;
+              const iva = Number(producto.iva_porcentaje || 0);
+              const precioSinIva = iva > 0
+                ? Number(it.precio_unitario) / (1 + iva / 100)
+                : Number(it.precio_unitario);
+              const monto = precioSinIva * Number(it.cantidad) * (Number(producto.porcentaje_comision) / 100);
+              if (monto <= 0) return null;
+              return {
+                venta_id: venta.id,
+                venta_item_id: it.id,
+                vendedor_id: clienteSeleccionado.vendedor_id,
+                cliente_id: clienteId,
+                producto_id: it.producto_id,
+                numero_factura: numeroFactura || venta.numero,
+                fecha: new Date().toISOString().slice(0, 10),
+                precio_sin_iva: precioSinIva,
+                cantidad: it.cantidad,
+                porcentaje: producto.porcentaje_comision,
+                monto,
+                estado: 'pendiente',
+              };
+            })
+            .filter(Boolean);
+          if (comisionesData.length > 0) {
+            await supabase.from('comisiones').insert(comisionesData as any[]);
+          }
         }
         // Lote
         if (item.lote_id && prod?.lotes && prod.clasificacion !== 'SERVICIO') {
