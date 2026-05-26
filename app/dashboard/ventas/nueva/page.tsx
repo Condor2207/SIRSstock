@@ -442,7 +442,7 @@ export default function NuevaVentaPage() {
     return (
       <>
         <Header title="Venta registrada" subtitle="La venta fue confirmada exitosamente" />
-        <div className="p-6 max-w-2xl mx-auto">
+        <div className="p-4 md:p-6 max-w-2xl mx-auto">
           <div className="card p-10 text-center space-y-6">
             <CheckCircle className="w-16 h-16 text-emerald-500 mx-auto" />
             <div>
@@ -481,7 +481,7 @@ export default function NuevaVentaPage() {
   return (
     <>
       <Header title="Nueva Venta" subtitle="Registrar venta al contado o a crédito" />
-      <div className="p-6 max-w-5xl mx-auto space-y-6">
+      <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
         <Link href="/dashboard/ventas" className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300">
           <ArrowLeft className="w-4 h-4" /> Volver a ventas
         </Link>

@@ -80,7 +80,7 @@ export default function MarcasPage() {
   return (
     <div className="flex flex-col min-h-full">
       <Header title="Marcas / Líneas / Grupos" />
-      <div className="p-6">
+      <div className="p-4 md:p-6">
         <p className="text-sm text-gray-500 dark:text-gray-400 mb-4">Jerarquía de clasificación de productos: Marca → Línea → Grupo</p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
@@ -164,7 +164,7 @@ export default function MarcasPage() {
       </div>
 
       {modal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-sm p-6">
             <div className="flex justify-between items-center mb-5">
               <h3 className="font-semibold text-gray-900 dark:text-white">

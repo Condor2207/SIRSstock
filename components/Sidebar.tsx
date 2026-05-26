@@ -3,11 +3,12 @@
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { cn } from '@/lib/utils';
+import { useSidebar } from '@/lib/sidebar-context';
 import {
   LayoutDashboard, Package, Boxes, ShoppingCart, Users, Truck,
   CreditCard, Receipt, Factory, BarChart3, Leaf, ChevronLeft,
-  ChevronRight, FileSpreadsheet, Settings2, DollarSign, BadgePercent,
-  Handshake,
+  ChevronRight, FileSpreadsheet, Settings2, BadgePercent,
+  Handshake, X,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -50,76 +51,122 @@ const navSections: NavSection[] = [
   },
 ];
 
-export function Sidebar() {
+function NavLinks({ collapsed, onLinkClick }: { collapsed: boolean; onLinkClick?: () => void }) {
   const pathname = usePathname();
+  return (
+    <nav className="flex-1 py-3 overflow-y-auto">
+      {navSections.map((section, si) => (
+        <div key={si} className={cn(si > 0 && 'mt-2')}>
+          {!collapsed && section.label && (
+            <p className="px-4 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">
+              {section.label}
+            </p>
+          )}
+          {collapsed && section.label && (
+            <div className="mx-2 mb-1 border-t border-gray-100 dark:border-gray-800" />
+          )}
+          <ul className="space-y-0.5 px-2">
+            {section.items.map(({ href, icon: Icon, label, exact }) => {
+              const active = exact ? pathname === href : pathname.startsWith(href);
+              return (
+                <li key={href}>
+                  <Link
+                    href={href}
+                    title={collapsed ? label : undefined}
+                    onClick={onLinkClick}
+                    className={cn(
+                      'flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors',
+                      active
+                        ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-medium'
+                        : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100',
+                      collapsed && 'justify-center'
+                    )}
+                  >
+                    <Icon className={cn('shrink-0', active ? 'w-5 h-5' : 'w-4 h-4')} />
+                    {!collapsed && <span>{label}</span>}
+                  </Link>
+                </li>
+              );
+            })}
+          </ul>
+        </div>
+      ))}
+    </nav>
+  );
+}
+
+export function Sidebar() {
+  const { isOpen, close } = useSidebar();
   const [collapsed, setCollapsed] = useState(false);
 
   return (
-    <aside
-      className={cn(
-        'relative flex flex-col bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 transition-all duration-300 shrink-0',
-        collapsed ? 'w-16' : 'w-56'
+    <>
+      {/* Mobile backdrop */}
+      {isOpen && (
+        <div
+          className="fixed inset-0 z-30 bg-black/40 md:hidden"
+          onClick={close}
+          aria-hidden="true"
+        />
       )}
-    >
-      {/* Logo */}
-      <div className={cn('flex items-center gap-3 px-4 py-5 border-b border-gray-100 dark:border-gray-800', collapsed && 'justify-center px-2')}>
-        <div className="flex items-center justify-center w-8 h-8 bg-gradient-to-br from-blue-600 to-emerald-500 rounded-lg shrink-0">
-          <Leaf className="w-4 h-4 text-white" />
-        </div>
-        {!collapsed && (
-          <div>
-            <p className="text-sm font-bold text-gray-900 dark:text-white leading-tight">SIRS</p>
-            <p className="text-xs text-gray-400 leading-tight">Teixeira S.A.</p>
-          </div>
+
+      {/* Desktop sidebar */}
+      <aside
+        className={cn(
+          'relative flex-col bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 transition-all duration-300 shrink-0',
+          'hidden md:flex',
+          collapsed ? 'w-16' : 'w-56'
         )}
-      </div>
-
-      {/* Navigation */}
-      <nav className="flex-1 py-3 overflow-y-auto">
-        {navSections.map((section, si) => (
-          <div key={si} className={cn(si > 0 && 'mt-2')}>
-            {!collapsed && section.label && (
-              <p className="px-4 pb-1 pt-2 text-[10px] font-semibold uppercase tracking-widest text-gray-400 dark:text-gray-500">
-                {section.label}
-              </p>
-            )}
-            {collapsed && section.label && (
-              <div className="mx-2 mb-1 border-t border-gray-100 dark:border-gray-800" />
-            )}
-            <ul className="space-y-0.5 px-2">
-              {section.items.map(({ href, icon: Icon, label, exact }) => {
-                const active = exact ? pathname === href : pathname.startsWith(href);
-                return (
-                  <li key={href}>
-                    <Link
-                      href={href}
-                      title={collapsed ? label : undefined}
-                      className={cn(
-                        'flex items-center gap-3 px-2.5 py-2 rounded-lg text-sm transition-colors',
-                        active
-                          ? 'bg-blue-50 dark:bg-blue-900/30 text-blue-700 dark:text-blue-400 font-medium'
-                          : 'text-gray-600 dark:text-gray-400 hover:bg-gray-100 dark:hover:bg-gray-800 hover:text-gray-900 dark:hover:text-gray-100',
-                        collapsed && 'justify-center'
-                      )}
-                    >
-                      <Icon className={cn('shrink-0', active ? 'w-5 h-5' : 'w-4 h-4')} />
-                      {!collapsed && <span>{label}</span>}
-                    </Link>
-                  </li>
-                );
-              })}
-            </ul>
-          </div>
-        ))}
-      </nav>
-
-      {/* Collapse button */}
-      <button
-        onClick={() => setCollapsed(!collapsed)}
-        className="absolute -right-3 top-20 w-6 h-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-full flex items-center justify-center text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 z-10 shadow-sm"
       >
-        {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
-      </button>
-    </aside>
+        {/* Logo */}
+        <div className={cn('flex items-center gap-3 px-4 py-5 border-b border-gray-100 dark:border-gray-800', collapsed && 'justify-center px-2')}>
+          <div className="flex items-center justify-center w-8 h-8 bg-gradient-to-br from-blue-600 to-emerald-500 rounded-lg shrink-0">
+            <Leaf className="w-4 h-4 text-white" />
+          </div>
+          {!collapsed && (
+            <div>
+              <p className="text-sm font-bold text-gray-900 dark:text-white leading-tight">SIRS</p>
+              <p className="text-xs text-gray-400 leading-tight">Teixeira S.A.</p>
+            </div>
+          )}
+        </div>
+
+        <NavLinks collapsed={collapsed} />
+
+        {/* Collapse button */}
+        <button
+          onClick={() => setCollapsed(!collapsed)}
+          className="absolute -right-3 top-20 w-6 h-6 bg-white dark:bg-gray-900 border border-gray-200 dark:border-gray-700 rounded-full flex items-center justify-center text-gray-500 hover:text-gray-700 dark:hover:text-gray-300 z-10 shadow-sm"
+        >
+          {collapsed ? <ChevronRight className="w-3 h-3" /> : <ChevronLeft className="w-3 h-3" />}
+        </button>
+      </aside>
+
+      {/* Mobile drawer */}
+      <aside
+        className={cn(
+          'fixed inset-y-0 left-0 z-40 flex flex-col w-64 bg-white dark:bg-gray-900 border-r border-gray-200 dark:border-gray-700 transition-transform duration-300 md:hidden',
+          isOpen ? 'translate-x-0' : '-translate-x-full'
+        )}
+      >
+        {/* Logo + close */}
+        <div className="flex items-center justify-between px-4 py-5 border-b border-gray-100 dark:border-gray-800">
+          <div className="flex items-center gap-3">
+            <div className="flex items-center justify-center w-8 h-8 bg-gradient-to-br from-blue-600 to-emerald-500 rounded-lg shrink-0">
+              <Leaf className="w-4 h-4 text-white" />
+            </div>
+            <div>
+              <p className="text-sm font-bold text-gray-900 dark:text-white leading-tight">SIRS</p>
+              <p className="text-xs text-gray-400 leading-tight">Teixeira S.A.</p>
+            </div>
+          </div>
+          <button onClick={close} className="p-1.5 rounded-lg text-gray-400 hover:text-gray-600 hover:bg-gray-100 dark:hover:bg-gray-800">
+            <X className="w-4 h-4" />
+          </button>
+        </div>
+
+        <NavLinks collapsed={false} onLinkClick={close} />
+      </aside>
+    </>
   );
 }

@@ -291,7 +291,7 @@ export default function RG90Page() {
         title="RG90 — Registro de Comprobantes de Venta"
         subtitle="Informe fiscal periódico DNIT Paraguay"
       />
-      <div className="p-6 space-y-5">
+      <div className="p-4 md:p-6 space-y-5">
         <Link
           href="/dashboard/reportes"
           className="inline-flex items-center gap-1 text-sm text-gray-500 hover:text-gray-700 dark:hover:text-gray-300"

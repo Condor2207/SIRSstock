@@ -66,7 +66,7 @@ export default function ComisionesPage() {
   return (
     <>
       <Header title="Comisiones" subtitle="Seguimiento de comisiones a vendedores" />
-      <div className="p-6 space-y-4">
+      <div className="p-4 md:p-6 space-y-4">
 
         {/* Resumen por vendedor */}
         {resumenVendedores.length > 0 && (

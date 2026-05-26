@@ -98,7 +98,7 @@ export default function ProveedoresPage() {
   return (
     <>
       <Header title="Proveedores" subtitle="Gestión de proveedores y condiciones de pago" />
-      <div className="p-6 space-y-4">
+      <div className="p-4 md:p-6 space-y-4">
         <div className="flex flex-col sm:flex-row gap-3 justify-between">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />

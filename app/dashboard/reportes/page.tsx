@@ -165,7 +165,7 @@ export default function ReportesPage() {
   return (
     <>
       <Header title="Reportes" subtitle="Reportes y análisis del sistema" />
-      <div className="p-6 space-y-4">
+      <div className="p-4 md:p-6 space-y-4">
         {/* Tabs */}
         <div className="flex gap-1 bg-gray-100 dark:bg-gray-800 p-1 rounded-xl w-full overflow-x-auto">
           {tabs.map(t => (

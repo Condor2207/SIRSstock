@@ -45,12 +45,12 @@ export default function BancosPage() {
   return (
     <div className="flex flex-col min-h-full">
       <Header title="Bancos" />
-      <div className="p-6">
-        <div className="flex justify-between items-center mb-4">
+      <div className="p-4 md:p-6">
+        <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
           <p className="text-sm text-gray-500 dark:text-gray-400">{items.length} bancos registrados</p>
           <button className="btn-primary flex items-center gap-2" onClick={openNew}><Plus className="w-4 h-4" />Nuevo Banco</button>
         </div>
-        <div className="card overflow-hidden">
+        <div className="card overflow-x-auto">
           {loading ? <div className="flex justify-center p-8"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div> : (
             <table className="w-full text-sm">
               <thead><tr><th className="table-header">Banco</th><th className="table-header">Estado</th><th className="table-header text-right">Acciones</th></tr></thead>
@@ -71,7 +71,7 @@ export default function BancosPage() {
       </div>
 
       {showModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50">
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-gray-900 rounded-xl shadow-xl w-full max-w-sm p-6">
             <div className="flex justify-between items-center mb-5">
               <h3 className="font-semibold text-gray-900 dark:text-white">{editando ? 'Editar Banco' : 'Nuevo Banco'}</h3>

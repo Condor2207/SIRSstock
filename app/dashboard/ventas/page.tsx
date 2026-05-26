@@ -104,7 +104,7 @@ export default function VentasPage() {
   return (
     <>
       <Header title="Ventas" subtitle="Registro de ventas al contado y a crédito" />
-      <div className="p-6 space-y-4">
+      <div className="p-4 md:p-6 space-y-4">
         <div className="flex flex-col sm:flex-row gap-3 justify-between">
           <div className="flex gap-2">
             <div className="relative">

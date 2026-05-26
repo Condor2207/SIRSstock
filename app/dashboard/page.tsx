@@ -86,7 +86,7 @@ export default function DashboardPage() {
   return (
     <>
       <Header title="Dashboard" subtitle="Resumen general del negocio" />
-      <div className="p-6 space-y-6">
+      <div className="p-4 md:p-6 space-y-6">
         {loading ? (
           <div className="flex items-center justify-center h-64">
             <div className="animate-spin w-8 h-8 border-4 border-blue-500 border-t-transparent rounded-full" />

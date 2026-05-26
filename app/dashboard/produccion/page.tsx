@@ -242,7 +242,7 @@ export default function ProduccionPage() {
   return (
     <>
       <Header title="Producción" subtitle="Control de lotes de producción y trazabilidad" />
-      <div className="p-6 space-y-4">
+      <div className="p-4 md:p-6 space-y-4">
         <div className="flex justify-end">
           <button onClick={() => setShowModal(true)} className="btn-primary flex items-center gap-2">
             <Plus className="w-4 h-4" /> Nueva producción

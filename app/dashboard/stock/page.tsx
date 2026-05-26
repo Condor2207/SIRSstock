@@ -141,7 +141,7 @@ export default function StockPage() {
   return (
     <>
       <Header title="Stock & Lotes" subtitle="Control de inventario con trazabilidad por lote y vencimiento" />
-      <div className="p-6 space-y-4">
+      <div className="p-4 md:p-6 space-y-4">
         <div className="flex flex-col sm:flex-row gap-3 justify-between">
           <div className="flex gap-2 flex-wrap">
             <div className="relative">

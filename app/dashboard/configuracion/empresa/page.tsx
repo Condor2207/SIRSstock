@@ -44,7 +44,7 @@ export default function EmpresaConfigPage() {
   return (
     <div className="flex flex-col min-h-full">
       <Header title="Datos de Empresa" />
-      <div className="p-6 max-w-2xl">
+      <div className="p-4 md:p-6 max-w-2xl">
         <div className="card p-6 space-y-5">
           <div className="flex items-center gap-3 mb-2">
             <Building2 className="w-5 h-5 text-blue-500" />

@@ -78,7 +78,7 @@ export default function GastosPage() {
   return (
     <>
       <Header title="Gastos" subtitle="Registro de gastos y egresos operativos" />
-      <div className="p-6 space-y-4">
+      <div className="p-4 md:p-6 space-y-4">
         <div className="flex flex-col sm:flex-row gap-3 justify-between items-start">
           <div className="flex gap-2 flex-1">
             <div className="relative flex-1 max-w-sm">
