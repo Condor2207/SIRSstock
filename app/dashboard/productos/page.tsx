@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase';
 import { formatCurrency } from '@/lib/utils';
 import { Plus, Search, Edit2, Trash2, X, Loader2, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { SearchSelect } from '@/components/SearchSelect';
+import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
 import type { Producto, Categoria, Clasificacion, TasaIva, Marca, Linea, Grupo, UnidadMedida, ListaPrecios } from '@/lib/types';
 
 export default function ProductosPage() {
@@ -24,8 +26,12 @@ export default function ProductosPage() {
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando] = useState<Producto | null>(null);
   const [saving, setSaving] = useState(false);
-  const [tabModal, setTabModal] = useState<'general' | 'precios'>('general');
+  const [tabModal, setTabModal] = useState<'general' | 'precios' | 'exportacion'>('general');
   const [preciosPorLista, setPreciosPorLista] = useState<Record<string, string>>({});
+  const [formExport, setFormExport] = useState({
+    nombre_en: '', descripcion_en: '', unidad_medida_en: '', precio_usd: '',
+    codigo_barras_en: '', notas_en: '',
+  });
 
   const [form, setForm] = useState({
     sku: '', nombre: '', descripcion: '', categoria_id: '',
@@ -81,6 +87,16 @@ export default function ProductosPage() {
     const map: Record<string, string> = {};
     (precios || []).forEach((pp: any) => { map[pp.lista_precios_id] = String(pp.precio); });
     setPreciosPorLista(map);
+    // Cargar datos de exportación si existen
+    const { data: expData } = await supabase.from('producto_exportacion').select('*').eq('producto_id', p.id).maybeSingle();
+    setFormExport({
+      nombre_en: expData?.nombre_en || '',
+      descripcion_en: expData?.descripcion_en || '',
+      unidad_medida_en: expData?.unidad_medida_en || '',
+      precio_usd: expData?.precio_usd ? String(expData.precio_usd) : '',
+      codigo_barras_en: expData?.codigo_barras_en || '',
+      notas_en: expData?.notas_en || '',
+    });
     setTabModal('general');
     setShowModal(true);
   }
@@ -89,8 +105,17 @@ export default function ProductosPage() {
     setEditando(null);
     setForm({ sku: '', nombre: '', descripcion: '', categoria_id: '', unidad_medida: unidades[0]?.nombre || 'Unidad', precio_venta: '', precio_compra: '', stock_minimo: '0', control_lote: false, activo: true, clasificacion_id: '', codigo_barras: '', marca_id: '', linea_id: '', grupo_id: '', tasa_iva_id: '', es_exportacion: false, plazo_vencimiento_meses: '36', porcentaje_comision: '0' });
     setPreciosPorLista({});
+    setFormExport({ nombre_en: '', descripcion_en: '', unidad_medida_en: '', precio_usd: '', codigo_barras_en: '', notas_en: '' });
     setTabModal('general');
     setShowModal(true);
+  }
+
+  function calcFechaVencimiento(): string {
+    const meses = parseInt(form.plazo_vencimiento_meses);
+    if (!meses || meses <= 0) return '';
+    const d = new Date();
+    d.setMonth(d.getMonth() + meses);
+    return d.toLocaleDateString('es-PY');
   }
 
   const lineasFiltradas = lineas.filter(l => l.marca_id === form.marca_id);
@@ -134,6 +159,19 @@ export default function ProductosPage() {
         const precio = parseFloat(precioStr) || 0;
         await supabase.from('producto_precios').upsert({ producto_id: productoId, lista_precios_id, precio }, { onConflict: 'producto_id,lista_precios_id' });
       }
+      // Guardar datos de exportación si aplica
+      if (payload.es_exportacion && productoId) {
+        const expPayload = {
+          producto_id: productoId,
+          nombre_en: formExport.nombre_en || null,
+          descripcion_en: formExport.descripcion_en || null,
+          unidad_medida_en: formExport.unidad_medida_en || null,
+          precio_usd: parseFloat(formExport.precio_usd) || null,
+          codigo_barras_en: formExport.codigo_barras_en || null,
+          notas_en: formExport.notas_en || null,
+        };
+        await supabase.from('producto_exportacion').upsert(expPayload, { onConflict: 'producto_id' });
+      }
       setShowModal(false);
       loadData();
     } catch (e: any) {
@@ -149,10 +187,12 @@ export default function ProductosPage() {
     loadData();
   }
 
-  const filtered = productos.filter(p =>
+  const filteredRaw = productos.filter(p =>
     p.nombre.toLowerCase().includes(search.toLowerCase()) ||
     p.sku.toLowerCase().includes(search.toLowerCase())
   );
+  const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filteredRaw as any[]);
+  const { paginated: filtered, page, setPage, pageSize, setPageSize, totalPages, total } = usePagination(filteredSorted);
 
   return (
     <>
@@ -181,13 +221,13 @@ export default function ProductosPage() {
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-gray-800/50">
                   <tr>
-                    <th className="table-header">Cód.</th>
-                    <th className="table-header">SKU</th>
-                    <th className="table-header">Nombre</th>
-                    <th className="table-header">Clasificación</th>
-                    <th className="table-header">Unidad</th>
-                    <th className="table-header">Precio Venta</th>
-                    <th className="table-header">Stock</th>
+                    <SortableTh label="Cód." sortKey="codigo_interno" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="SKU" sortKey="sku" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Nombre" sortKey="nombre" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Clasificación" sortKey="clasificacion" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Unidad" sortKey="unidad_medida" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Precio Venta" sortKey="precio_venta" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Stock" sortKey="stock_actual" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Estado</th>
                     <th className="table-header">Acciones</th>
                   </tr>
@@ -225,6 +265,7 @@ export default function ProductosPage() {
                   ))}
                 </tbody>
               </table>
+              <Pagination page={page} totalPages={totalPages} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
             </div>
           )}
         </div>
@@ -243,10 +284,10 @@ export default function ProductosPage() {
 
             {/* Tabs */}
             <div className="flex border-b border-gray-100 dark:border-gray-700 shrink-0">
-              {(['general', 'precios'] as const).map(tab => (
+              {(['general', 'precios', ...(form.es_exportacion ? ['exportacion'] : [])] as const).map((tab: any) => (
                 <button key={tab} onClick={() => setTabModal(tab)}
-                  className={`px-5 py-3 text-sm font-medium border-b-2 transition-colors ${tabModal === tab ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
-                  {tab === 'general' ? 'Datos generales' : 'Precios por lista'}
+                  className={`px-4 py-3 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${tabModal === tab ? 'border-blue-500 text-blue-600 dark:text-blue-400' : 'border-transparent text-gray-500 hover:text-gray-700 dark:hover:text-gray-300'}`}>
+                  {tab === 'general' ? 'Datos generales' : tab === 'precios' ? 'Precios por lista' : '🌐 Export Prices'}
                 </button>
               ))}
             </div>
@@ -282,55 +323,71 @@ export default function ProductosPage() {
                   <div className="grid grid-cols-2 gap-4">
                     <div>
                       <label className="label">Clasificación</label>
-                      <select className="input" value={form.clasificacion_id} onChange={e => setForm(f => ({ ...f, clasificacion_id: e.target.value }))}>
-                        <option value="">Sin clasificación</option>
-                        {clasificaciones.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                      </select>
+                      <SearchSelect
+                        options={clasificaciones.map(c => ({ value: c.id, label: c.nombre }))}
+                        value={form.clasificacion_id}
+                        onChange={v => setForm(f => ({ ...f, clasificacion_id: v }))}
+                        placeholder="Sin clasificación"
+                      />
                     </div>
                     <div>
                       <label className="label">Categoría</label>
-                      <select className="input" value={form.categoria_id} onChange={e => setForm(f => ({ ...f, categoria_id: e.target.value }))}>
-                        <option value="">Sin categoría</option>
-                        {categorias.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                      </select>
+                      <SearchSelect
+                        options={categorias.map(c => ({ value: c.id, label: c.nombre }))}
+                        value={form.categoria_id}
+                        onChange={v => setForm(f => ({ ...f, categoria_id: v }))}
+                        placeholder="Sin categoría"
+                      />
                     </div>
                     <div>
                       <label className="label">Unidad de medida</label>
-                      <select className="input" value={form.unidad_medida} onChange={e => setForm(f => ({ ...f, unidad_medida: e.target.value }))}>
-                        <option value="">Seleccionar</option>
-                        {unidades.map(u => <option key={u.id} value={u.nombre}>{u.nombre} ({u.abreviatura})</option>)}
-                      </select>
+                      <SearchSelect
+                        options={unidades.map(u => ({ value: u.nombre, label: `${u.nombre} (${u.abreviatura})` }))}
+                        value={form.unidad_medida}
+                        onChange={v => setForm(f => ({ ...f, unidad_medida: v }))}
+                        placeholder="Seleccionar"
+                      />
                     </div>
                     <div>
                       <label className="label">Tasa IVA</label>
-                      <select className="input" value={form.tasa_iva_id} onChange={e => setForm(f => ({ ...f, tasa_iva_id: e.target.value }))}>
-                        <option value="">Sin asignar</option>
-                        {tasasIva.map(t => <option key={t.id} value={t.id}>{t.nombre} ({t.porcentaje}%)</option>)}
-                      </select>
+                      <SearchSelect
+                        options={tasasIva.map(t => ({ value: t.id, label: `${t.nombre} (${t.porcentaje}%)` }))}
+                        value={form.tasa_iva_id}
+                        onChange={v => setForm(f => ({ ...f, tasa_iva_id: v }))}
+                        placeholder="Sin asignar"
+                      />
                     </div>
                   </div>
 
                   <div className="grid grid-cols-3 gap-3">
                     <div>
                       <label className="label">Marca</label>
-                      <select className="input" value={form.marca_id} onChange={e => setForm(f => ({ ...f, marca_id: e.target.value, linea_id: '', grupo_id: '' }))}>
-                        <option value="">—</option>
-                        {marcas.map(m => <option key={m.id} value={m.id}>{m.nombre}</option>)}
-                      </select>
+                      <SearchSelect
+                        options={marcas.map(m => ({ value: m.id, label: m.nombre }))}
+                        value={form.marca_id}
+                        onChange={v => setForm(f => ({ ...f, marca_id: v, linea_id: '', grupo_id: '' }))}
+                        placeholder="—"
+                      />
                     </div>
                     <div>
                       <label className="label">Línea</label>
-                      <select className="input" value={form.linea_id} onChange={e => setForm(f => ({ ...f, linea_id: e.target.value, grupo_id: '' }))} disabled={!form.marca_id}>
-                        <option value="">—</option>
-                        {lineasFiltradas.map(l => <option key={l.id} value={l.id}>{l.nombre}</option>)}
-                      </select>
+                      <SearchSelect
+                        options={lineasFiltradas.map(l => ({ value: l.id, label: l.nombre }))}
+                        value={form.linea_id}
+                        onChange={v => setForm(f => ({ ...f, linea_id: v, grupo_id: '' }))}
+                        placeholder="—"
+                        disabled={!form.marca_id}
+                      />
                     </div>
                     <div>
                       <label className="label">Grupo</label>
-                      <select className="input" value={form.grupo_id} onChange={e => setForm(f => ({ ...f, grupo_id: e.target.value }))} disabled={!form.linea_id}>
-                        <option value="">—</option>
-                        {gruposFiltrados.map(g => <option key={g.id} value={g.id}>{g.nombre}</option>)}
-                      </select>
+                      <SearchSelect
+                        options={gruposFiltrados.map(g => ({ value: g.id, label: g.nombre }))}
+                        value={form.grupo_id}
+                        onChange={v => setForm(f => ({ ...f, grupo_id: v }))}
+                        placeholder="—"
+                        disabled={!form.linea_id}
+                      />
                     </div>
                   </div>
 
@@ -350,6 +407,9 @@ export default function ProductosPage() {
                     <div>
                       <label className="label">Plazo venc. (meses)</label>
                       <input type="number" min="0" className="input" value={form.plazo_vencimiento_meses} onChange={e => setForm(f => ({ ...f, plazo_vencimiento_meses: e.target.value }))} />
+                      {calcFechaVencimiento() && (
+                        <p className="text-xs text-gray-400 mt-1">Vence aprox.: <span className="text-orange-500 font-medium">{calcFechaVencimiento()}</span></p>
+                      )}
                     </div>
                     <div>
                       <label className="label">% Comisión</label>
@@ -372,6 +432,40 @@ export default function ProductosPage() {
                     </label>
                   </div>
                 </>
+              )}
+
+              {tabModal === 'exportacion' && (
+                <div className="space-y-4">
+                  <p className="text-sm text-blue-600 dark:text-blue-400 bg-blue-50 dark:bg-blue-900/20 rounded-lg p-3">
+                    Export fields — data used for international invoices. Stored separately in English.
+                  </p>
+                  <div className="grid grid-cols-2 gap-4">
+                    <div>
+                      <label className="label">Product Name (EN)</label>
+                      <input className="input" placeholder="e.g. Stevia Powder 50g" value={formExport.nombre_en} onChange={e => setFormExport(f => ({ ...f, nombre_en: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="label">Unit of Measure (EN)</label>
+                      <input className="input" placeholder="e.g. Unit / Box / Kg" value={formExport.unidad_medida_en} onChange={e => setFormExport(f => ({ ...f, unidad_medida_en: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="label">Barcode (Export)</label>
+                      <input className="input" placeholder="International barcode" value={formExport.codigo_barras_en} onChange={e => setFormExport(f => ({ ...f, codigo_barras_en: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="label">Export Price (USD)</label>
+                      <input type="number" min="0" step="0.01" className="input" placeholder="0.00" value={formExport.precio_usd} onChange={e => setFormExport(f => ({ ...f, precio_usd: e.target.value }))} />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="label">Description (EN)</label>
+                    <textarea className="input" rows={2} placeholder="Product description in English..." value={formExport.descripcion_en} onChange={e => setFormExport(f => ({ ...f, descripcion_en: e.target.value }))} />
+                  </div>
+                  <div>
+                    <label className="label">Export Notes</label>
+                    <textarea className="input" rows={2} placeholder="Additional notes for export..." value={formExport.notas_en} onChange={e => setFormExport(f => ({ ...f, notas_en: e.target.value }))} />
+                  </div>
+                </div>
               )}
 
               {tabModal === 'precios' && (

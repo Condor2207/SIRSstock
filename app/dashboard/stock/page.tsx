@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase';
 import { formatDate, estadoVencimiento, formatNumber } from '@/lib/utils';
 import { Search, Plus, Boxes, AlertTriangle, X, Loader2, Filter } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { SearchSelect } from '@/components/SearchSelect';
+import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
 
 interface StockRow {
   productoId: string;
@@ -129,7 +131,7 @@ export default function StockPage() {
 
   const in30 = new Date(Date.now() + 30 * 864e5).toISOString().split('T')[0];
 
-  const filtered = rows.filter(r => {
+  const filteredRaw = rows.filter(r => {
     const matchSearch = r.nombre.toLowerCase().includes(search.toLowerCase()) || r.sku.toLowerCase().includes(search.toLowerCase());
     if (!matchSearch) return false;
     if (filtro === 'bajo') return r.stockTotal <= r.stockMinimo;
@@ -137,6 +139,8 @@ export default function StockPage() {
     if (filtro === 'sin-lote') return r.controlLote && r.lotes.length === 0;
     return true;
   });
+  const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filteredRaw as any[]);
+  const { paginated: filtered, page, setPage, pageSize, setPageSize, totalPages, total } = usePagination(filteredSorted);
 
   return (
     <>
@@ -168,10 +172,10 @@ export default function StockPage() {
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-gray-800/50">
                   <tr>
-                    <th className="table-header">SKU</th>
-                    <th className="table-header">Producto</th>
-                    <th className="table-header">Categoría</th>
-                    <th className="table-header">Stock Total</th>
+                    <SortableTh label="SKU" sortKey="sku" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Producto" sortKey="nombre" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Categoría" sortKey="categoria" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Stock Total" sortKey="stockTotal" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Lotes activos</th>
                     <th className="table-header">Estado</th>
                   </tr>
@@ -230,8 +234,7 @@ export default function StockPage() {
                     );
                   })}
                 </tbody>
-              </table>
-            </div>
+              </table>              <Pagination page={page} totalPages={totalPages} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />            </div>
           )}
         </div>
       </div>
@@ -255,13 +258,15 @@ export default function StockPage() {
               </div>
               <div>
                 <label className="label">Producto *</label>
-                <select className="input" value={ajusteForm.producto_id} onChange={e => {
-                  setAjusteForm(f => ({ ...f, producto_id: e.target.value, lote_id: '' }));
-                  if (e.target.value) loadLotesProducto(e.target.value);
-                }}>
-                  <option value="">Seleccionar producto...</option>
-                  {productos.map(p => <option key={p.id} value={p.id}>{p.sku} - {p.nombre}</option>)}
-                </select>
+                <SearchSelect
+                  options={productos.map(p => ({ value: p.id, label: p.nombre, sublabel: p.sku }))}
+                  value={ajusteForm.producto_id}
+                  onChange={v => {
+                    setAjusteForm(f => ({ ...f, producto_id: v, lote_id: '' }));
+                    if (v) loadLotesProducto(v);
+                  }}
+                  placeholder="Seleccionar producto..."
+                />
               </div>
               {lotesDelProducto.length > 0 && (
                 <div>

@@ -7,9 +7,12 @@ import { formatCurrency, formatDate } from '@/lib/utils';
 import { Plus, Search, Receipt, X, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Gasto, Proveedor } from '@/lib/types';
+import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
 
 const CATEGORIAS = ['Servicios', 'Combustible', 'Reparaciones', 'Insumos de oficina', 'Alquiler', 'Transporte', 'Marketing', 'Personal', 'Impuestos', 'Otros'];
 const MEDIOS_PAGO = ['efectivo', 'transferencia', 'cheque', 'tarjeta', 'otro'];
+
+interface Banco { id: string; nombre: string; }
 
 export default function GastosPage() {
   const supabase = createClient();
@@ -19,11 +22,13 @@ export default function GastosPage() {
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
+  const [bancos, setBancos] = useState<Banco[]>([]);
   const [form, setForm] = useState({
     titulo: '', descripcion: '', proveedor_id: '', monto: '',
     fecha: new Date().toISOString().split('T')[0],
     medio_pago: 'efectivo', categoria: '', referencia: '',
     condicion: 'debito' as 'debito' | 'credito', fecha_vencimiento: '',
+    numero_transaccion: '', banco_id: '', numero_cheque: '', fecha_cheque: '',
   });
 
   const load = useCallback(async () => {
@@ -36,10 +41,11 @@ export default function GastosPage() {
   useEffect(() => {
     load();
     supabase.from('proveedores').select('id, nombre').eq('activo', true).order('nombre').then(r => setProveedores(r.data as Proveedor[] || []));
+    supabase.from('bancos').select('id, nombre').eq('activo', true).order('nombre').then(r => setBancos(r.data as Banco[] || []));
   }, [load]);
 
   function resetForm() {
-    setForm({ titulo: '', descripcion: '', proveedor_id: '', monto: '', fecha: new Date().toISOString().split('T')[0], medio_pago: 'efectivo', categoria: '', referencia: '', condicion: 'debito', fecha_vencimiento: '' });
+    setForm({ titulo: '', descripcion: '', proveedor_id: '', monto: '', fecha: new Date().toISOString().split('T')[0], medio_pago: 'efectivo', categoria: '', referencia: '', condicion: 'debito', fecha_vencimiento: '', numero_transaccion: '', banco_id: '', numero_cheque: '', fecha_cheque: '' });
   }
 
   async function handleSave() {
@@ -55,6 +61,10 @@ export default function GastosPage() {
         categoria: form.categoria || null, referencia: form.referencia || null,
         condicion: form.condicion,
         fecha_vencimiento: form.condicion === 'credito' ? (form.fecha_vencimiento || null) : null,
+        numero_transaccion: form.medio_pago === 'transferencia' ? (form.numero_transaccion || null) : null,
+        banco_id: form.medio_pago === 'cheque' ? (form.banco_id || null) : null,
+        numero_cheque: form.medio_pago === 'cheque' ? (form.numero_cheque || null) : null,
+        fecha_cheque: form.medio_pago === 'cheque' ? (form.fecha_cheque || null) : null,
       });
       if (error) throw error;
       toast.success('Gasto registrado');
@@ -68,10 +78,12 @@ export default function GastosPage() {
     }
   }
 
-  const filtered = gastos.filter(g =>
+  const filteredRaw = gastos.filter(g =>
     g.titulo.toLowerCase().includes(search.toLowerCase()) ||
     (g.categoria || '').toLowerCase().includes(search.toLowerCase())
   );
+  const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filteredRaw as any[]);
+  const { paginated: filtered, page, setPage, pageSize, setPageSize, totalPages, total } = usePagination(filteredSorted);
 
   const totalFiltrado = filtered.reduce((s, g) => s + g.monto, 0);
 
@@ -111,12 +123,12 @@ export default function GastosPage() {
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-gray-800/50">
                   <tr>
-                    <th className="table-header">Fecha</th>
-                    <th className="table-header">Título</th>
-                    <th className="table-header">Categoría</th>
+                    <SortableTh label="Fecha" sortKey="fecha" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Título" sortKey="titulo" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Categoría" sortKey="categoria" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Proveedor</th>
-                    <th className="table-header">Medio pago</th>
-                    <th className="table-header">Monto</th>
+                    <SortableTh label="Medio pago" sortKey="medio_pago" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Monto" sortKey="monto" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -145,6 +157,7 @@ export default function GastosPage() {
                   </tr>
                 </tfoot>
               </table>
+              <Pagination page={page} totalPages={totalPages} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
             </div>
           )}
         </div>
@@ -197,6 +210,32 @@ export default function GastosPage() {
                     {MEDIOS_PAGO.map(m => <option key={m} className="capitalize">{m}</option>)}
                   </select>
                 </div>
+                {/* Campos dinámicos según medio de pago */}
+                {form.medio_pago === 'transferencia' && (
+                  <div>
+                    <label className="label">N° Transacción</label>
+                    <input className="input" placeholder="TRF-00001" value={form.numero_transaccion} onChange={e => setForm(f => ({ ...f, numero_transaccion: e.target.value }))} />
+                  </div>
+                )}
+                {form.medio_pago === 'cheque' && (
+                  <>
+                    <div>
+                      <label className="label">N° Cheque</label>
+                      <input className="input" placeholder="CHE-00001" value={form.numero_cheque} onChange={e => setForm(f => ({ ...f, numero_cheque: e.target.value }))} />
+                    </div>
+                    <div>
+                      <label className="label">Banco</label>
+                      <select className="input" value={form.banco_id} onChange={e => setForm(f => ({ ...f, banco_id: e.target.value }))}>
+                        <option value="">Seleccionar banco</option>
+                        {bancos.map(b => <option key={b.id} value={b.id}>{b.nombre}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Fecha cobro cheque</label>
+                      <input type="date" className="input" value={form.fecha_cheque} onChange={e => setForm(f => ({ ...f, fecha_cheque: e.target.value }))} />
+                    </div>
+                  </>
+                )}
                 {form.condicion === 'credito' && (
                   <div>
                     <label className="label">Fecha vencimiento</label>

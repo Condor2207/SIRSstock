@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { Search, Loader2, BadgePercent, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
 import type { Vendedor } from '@/lib/types';
 
 export default function ComisionesPage() {
@@ -15,7 +16,10 @@ export default function ComisionesPage() {
   const [loading, setLoading] = useState(true);
   const [filtroVendedor, setFiltroVendedor] = useState('');
   const [filtroEstado, setFiltroEstado] = useState('');
-  const [filtroMes, setFiltroMes] = useState('');
+  const [fechaDesde, setFechaDesde] = useState(() => {
+    const d = new Date(); d.setDate(1); return d.toISOString().split('T')[0];
+  });
+  const [fechaHasta, setFechaHasta] = useState(() => new Date().toISOString().split('T')[0]);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -50,11 +54,13 @@ export default function ComisionesPage() {
   const filtered = comisiones.filter(c => {
     if (filtroVendedor && c.vendedor_id !== filtroVendedor) return false;
     if (filtroEstado && c.estado !== filtroEstado) return false;
-    if (filtroMes && !c.fecha?.startsWith(filtroMes)) return false;
+    if (fechaDesde && c.fecha && c.fecha < fechaDesde) return false;
+    if (fechaHasta && c.fecha && c.fecha > fechaHasta) return false;
     return true;
   });
 
-  const totalPendiente = filtered.filter(c => c.estado === 'pendiente').reduce((s, c) => s + c.monto, 0);
+  const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filtered);
+  const { paginated: filteredPage, page, setPage, pageSize, setPageSize, totalPages, total } = usePagination(filteredSorted);
   const totalPagado = filtered.filter(c => c.estado === 'pagada').reduce((s, c) => s + c.monto, 0);
 
   // Agrupar totales por vendedor para el resumen
@@ -99,8 +105,12 @@ export default function ComisionesPage() {
             </select>
           </div>
           <div>
-            <label className="label text-xs">Mes (YYYY-MM)</label>
-            <input className="input" placeholder="2025-01" value={filtroMes} onChange={e => setFiltroMes(e.target.value)} />
+            <label className="label text-xs">Fecha desde</label>
+            <input type="date" className="input" value={fechaDesde} onChange={e => setFechaDesde(e.target.value)} />
+          </div>
+          <div>
+            <label className="label text-xs">Fecha hasta</label>
+            <input type="date" className="input" value={fechaHasta} onChange={e => setFechaHasta(e.target.value)} />
           </div>
           {filtered.some(c => c.estado === 'pendiente') && (
             <button onClick={marcarSeleccionPagada} className="btn-primary flex items-center gap-2">
@@ -128,21 +138,21 @@ export default function ComisionesPage() {
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-gray-800/50">
                   <tr>
-                    <th className="table-header">Fecha</th>
-                    <th className="table-header">Venta</th>
-                    <th className="table-header">Vendedor</th>
+                    <SortableTh label="Fecha" sortKey="fecha" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Venta" sortKey="ventas" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Vendedor" sortKey="vendedores" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Cliente</th>
                     <th className="table-header">Producto</th>
-                    <th className="table-header">Cant.</th>
-                    <th className="table-header">P. s/IVA</th>
+                    <SortableTh label="Cant." sortKey="cantidad" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="P. s/IVA" sortKey="precio_sin_iva" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">%</th>
-                    <th className="table-header">Monto</th>
-                    <th className="table-header">Estado</th>
+                    <SortableTh label="Monto" sortKey="monto" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Estado" sortKey="estado" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header"></th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                  {filtered.map(c => (
+                  {filteredPage.map(c => (
                     <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                       <td className="table-cell text-xs">{formatDate(c.fecha)}</td>
                       <td className="table-cell font-mono text-xs text-blue-600">{c.ventas?.numero || '—'}</td>
@@ -167,6 +177,7 @@ export default function ComisionesPage() {
                   ))}
                 </tbody>
               </table>
+              <Pagination page={page} totalPages={totalPages} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
             </div>
           )}
         </div>

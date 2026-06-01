@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase';
 import { formatDate, formatNumber, estadoBadgeClass } from '@/lib/utils';
 import { Plus, Search, Eye, X, Loader2, Factory, Trash2, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { SearchSelect } from '@/components/SearchSelect';
 import type { Produccion, Producto, Clasificacion } from '@/lib/types';
 
 interface ProduccionItemForm {
@@ -370,10 +371,12 @@ export default function ProduccionPage() {
                         <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 items-end text-sm">
                           <div className="sm:col-span-2">
                             <label className="label text-xs">Producto</label>
-                            <select className="input py-1.5" value={item.producto_id} onChange={e => updateItem(idx, 'producto_id', e.target.value)}>
-                              <option value="">Seleccionar...</option>
-                              {productosTerminados.map(p => <option key={p.id} value={p.id}>{p.sku} - {p.nombre}</option>)}
-                            </select>
+                            <SearchSelect
+                              options={productosTerminados.map(p => ({ value: p.id, label: p.nombre, sublabel: p.sku }))}
+                              value={item.producto_id}
+                              onChange={v => updateItem(idx, 'producto_id', v)}
+                              placeholder="Seleccionar..."
+                            />
                           </div>
                           <div>
                             <label className="label text-xs">Cantidad</label>
@@ -421,10 +424,12 @@ export default function ProduccionPage() {
                       <div key={idx} className="grid grid-cols-3 gap-2 items-end text-sm">
                         <div className="col-span-2">
                           <label className="label text-xs">Insumo/Materia prima</label>
-                          <select className="input py-1.5" value={ins.producto_id} onChange={e => updateInsumo(idx, 'producto_id', e.target.value)}>
-                            <option value="">Seleccionar...</option>
-                            {productosInsumos.map(p => <option key={p.id} value={p.id}>{p.sku} - {p.nombre}</option>)}
-                          </select>
+                          <SearchSelect
+                            options={productosInsumos.map(p => ({ value: p.id, label: p.nombre, sublabel: p.sku }))}
+                            value={ins.producto_id}
+                            onChange={v => updateInsumo(idx, 'producto_id', v)}
+                            placeholder="Seleccionar..."
+                          />
                         </div>
                         <div className="flex gap-1 items-end">
                           <div className="flex-1">

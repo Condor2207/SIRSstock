@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase';
 import { formatCurrency, formatDate, estadoBadgeClass } from '@/lib/utils';
 import { Plus, Search, Eye, X, Loader2, Trash2, CreditCard } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { SearchSelect } from '@/components/SearchSelect';
+import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
 import type { Compra, Proveedor, Producto } from '@/lib/types';
 
 interface CompraItem {
@@ -32,7 +34,7 @@ export default function ComprasPage() {
   const [productos, setProductos] = useState<Producto[]>([]);
   const [form, setForm] = useState({
     proveedor_id: '', condicion_pago: 'contado' as 'contado' | 'credito',
-    numero_remito: '', notas: '', costo_flete: '',
+    numero_remito: '', notas: '', compra_servicios: '',
     plazo_dias: '', cantidad_cuotas: '1',
   });
   const [items, setItems] = useState<CompraItem[]>([]);
@@ -65,12 +67,14 @@ export default function ComprasPage() {
         item.subtotal = item.cantidad * item.precio_unitario;
       }
       if (campo === 'cantidad' || campo === 'precio_unitario') {
-        item.subtotal = (parseFloat(String(item.cantidad)) || 0) * (parseFloat(String(item.precio_unitario)) || 0);
+        const cant = parseFloat(String(campo === 'cantidad' ? valor : item.cantidad)) || 0;
+        const precio = parseFloat(String(campo === 'precio_unitario' ? valor : item.precio_unitario)) || 0;
+        item.subtotal = cant * precio;
       }
       updated[idx] = item;
       return updated;
     });
-    // Cargar historial al seleccionar producto
+    // Cargar historial y último precio al seleccionar producto
     if (campo === 'producto_id' && valor) {
       const { data } = await supabase
         .from('compra_items')
@@ -78,9 +82,16 @@ export default function ComprasPage() {
         .eq('producto_id', valor)
         .order('created_at', { ascending: false })
         .limit(5);
+      const historial = (data || []).map((d: any) => ({ fecha: d.compras?.fecha, precio: d.precio_unitario }));
       setItems(prev => {
         const updated = [...prev];
-        updated[idx] = { ...updated[idx], historial: (data || []).map((d: any) => ({ fecha: d.compras?.fecha, precio: d.precio_unitario })) };
+        const item = { ...updated[idx], historial };
+        // Auto-set price from most recent purchase
+        if (historial.length > 0) {
+          item.precio_unitario = historial[0].precio;
+          item.subtotal = item.cantidad * item.precio_unitario;
+        }
+        updated[idx] = item;
         return updated;
       });
     }
@@ -89,18 +100,20 @@ export default function ComprasPage() {
   function removeItem(idx: number) { setItems(prev => prev.filter((_, i) => i !== idx)); }
 
   const subtotalItems = items.reduce((s, i) => s + i.subtotal, 0);
-  const costo_flete = parseFloat(form.costo_flete) || 0;
-  const total = subtotalItems + costo_flete;
+  const compra_servicios = parseFloat(form.compra_servicios) || 0;
+  const total = subtotalItems + compra_servicios;
 
   async function handleSave() {
-    if (items.length === 0) { toast.error('Agregá al menos un producto'); return; }
-    if (items.some(i => !i.producto_id || i.cantidad <= 0)) { toast.error('Completá todos los productos'); return; }
+    if (items.length === 0) { toast.error('Agregá al menos un producto a la compra'); return; }
+    if (items.some(i => !i.producto_id)) { toast.error('Todos los líneas deben tener un producto seleccionado'); return; }
+    if (items.some(i => i.cantidad <= 0)) { toast.error('La cantidad debe ser mayor a 0 en todos los productos'); return; }
+    if (items.some(i => i.precio_unitario <= 0)) { toast.error('El precio unitario debe ser mayor a 0'); return; }
     const itemsSinVenc = items.filter(i => {
       const prod = productos.find(p => p.id === i.producto_id);
       return prod?.control_lote && !i.fecha_vencimiento;
     });
     if (itemsSinVenc.length > 0) {
-      toast.error('Todos los lotes deben tener fecha de vencimiento');
+      toast.error(`Productos con control de lote requieren fecha de vencimiento: ${itemsSinVenc.map(i => i.producto_nombre).join(', ')}`);
       return;
     }
     setSaving(true);
@@ -178,10 +191,10 @@ export default function ComprasPage() {
         });
       }
 
-      toast.success(`Compra ${numCompra} registrada`);
+      toast.success(`Compra ${numCompra} registrada exitosamente`);
       setShowModal(false);
       setItems([]);
-      setForm({ proveedor_id: '', condicion_pago: 'contado', numero_remito: '', notas: '', costo_flete: '', plazo_dias: '', cantidad_cuotas: '1' });
+      setForm({ proveedor_id: '', condicion_pago: 'contado', numero_remito: '', notas: '', compra_servicios: '', plazo_dias: '', cantidad_cuotas: '1' });
       load();
     } catch (e: any) {
       toast.error(e.message || 'Error al guardar');
@@ -195,10 +208,12 @@ export default function ComprasPage() {
     setDetalle(data as Compra);
   }
 
-  const filtered = compras.filter(c =>
+  const filteredRaw = compras.filter(c =>
     c.numero.toLowerCase().includes(search.toLowerCase()) ||
     (c as any).proveedores?.nombre?.toLowerCase().includes(search.toLowerCase())
   );
+  const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filteredRaw as any[]);
+  const { paginated: filtered, page, setPage, pageSize, setPageSize, totalPages, total: totalReg } = usePagination(filteredSorted);
 
   return (
     <>
@@ -227,12 +242,12 @@ export default function ComprasPage() {
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-gray-800/50">
                   <tr>
-                    <th className="table-header">N°</th>
-                    <th className="table-header">Fecha</th>
-                    <th className="table-header">Proveedor</th>
+                    <SortableTh label="N°" sortKey="numero" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Fecha" sortKey="fecha" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Proveedor" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Condición</th>
-                    <th className="table-header">Total</th>
-                    <th className="table-header">Saldo</th>
+                    <SortableTh label="Total" sortKey="total" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Saldo" sortKey="saldo_pendiente" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Estado</th>
                     <th className="table-header"></th>
                   </tr>
@@ -256,6 +271,7 @@ export default function ComprasPage() {
                   ))}
                 </tbody>
               </table>
+              <Pagination page={page} totalPages={totalPages} pageSize={pageSize} total={totalReg} onPageChange={setPage} onPageSizeChange={setPageSize} />
             </div>
           )}
         </div>
@@ -273,10 +289,12 @@ export default function ComprasPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="label">Proveedor</label>
-                  <select className="input" value={form.proveedor_id} onChange={e => setForm(f => ({ ...f, proveedor_id: e.target.value }))}>
-                    <option value="">Sin proveedor</option>
-                    {proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
-                  </select>
+                  <SearchSelect
+                    options={proveedores.map(p => ({ value: p.id, label: p.nombre }))}
+                    value={form.proveedor_id}
+                    onChange={v => setForm(f => ({ ...f, proveedor_id: v }))}
+                    placeholder="Sin proveedor"
+                  />
                 </div>
                 <div>
                   <label className="label">Condición pago</label>
@@ -290,8 +308,8 @@ export default function ComprasPage() {
                   <input className="input" value={form.numero_remito} onChange={e => setForm(f => ({ ...f, numero_remito: e.target.value }))} placeholder="R-0001-00000123" />
                 </div>
                 <div>
-                  <label className="label">Costo Flete (Gs.)</label>
-                  <input type="number" min="0" className="input" value={form.costo_flete} onChange={e => setForm(f => ({ ...f, costo_flete: e.target.value }))} placeholder="0" />
+                  <label className="label">Compra de servicios (Gs.)</label>
+                  <input type="number" min="0" step="1" className="input" value={form.compra_servicios} onChange={e => setForm(f => ({ ...f, compra_servicios: e.target.value }))} placeholder="0" />
                 </div>
                 {form.condicion_pago === 'credito' && (
                   <>
@@ -329,13 +347,15 @@ export default function ComprasPage() {
                           <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-sm items-end">
                         <div className="sm:col-span-2">
                               <label className="label text-xs">Producto</label>
-                              <select className="input py-1.5" value={item.producto_id} onChange={e => updateItem(idx, 'producto_id', e.target.value)}>
-                                <option value="">Seleccionar...</option>
-                                {productos.map(p => <option key={p.id} value={p.id}>{p.sku} - {p.nombre}</option>)}
-                              </select>
+                              <SearchSelect
+                                options={productos.map(p => ({ value: p.id, label: p.nombre, sublabel: p.sku }))}
+                                value={item.producto_id}
+                                onChange={v => updateItem(idx, 'producto_id', v)}
+                                placeholder="Seleccionar..."
+                              />
                               {item.historial && item.historial.length > 0 && (
                                 <div className="mt-1 text-xs text-gray-400">
-                                  Últimos precios: {item.historial.map((h, i) => <span key={i} className="mr-2">{formatCurrency(h.precio)} <span className="text-gray-300">({h.fecha})</span></span>)}
+                                  Últ. precios: {item.historial.slice(0, 3).map((h, i) => <span key={i} className="mr-2">{formatCurrency(h.precio)}</span>)}
                                 </div>
                               )}
                             </div>
@@ -353,7 +373,7 @@ export default function ComprasPage() {
                             )}
                             <div>
                               <label className="label text-xs">Cantidad</label>
-                              <input type="number" min="0.001" step="0.001" className="input py-1.5" value={item.cantidad} onChange={e => updateItem(idx, 'cantidad', parseFloat(e.target.value) || 0)} />
+                              <input type="number" min="1" step="1" className="input py-1.5" value={item.cantidad} onChange={e => updateItem(idx, 'cantidad', parseFloat(e.target.value) || 0)} />
                             </div>
                             <div>
                               <label className="label text-xs">Precio unit. (c/IVA)</label>
@@ -383,7 +403,7 @@ export default function ComprasPage() {
                 <div className="flex justify-end mt-3">
                   <div className="text-right space-y-1 text-sm">
                     <p>Subtotal productos: <span className="font-semibold">{formatCurrency(subtotalItems)}</span></p>
-                    {costo_flete > 0 && <p>Flete: <span className="font-semibold">{formatCurrency(costo_flete)}</span></p>}
+                    {compra_servicios > 0 && <p>Compra de servicios: <span className="font-semibold">{formatCurrency(compra_servicios)}</span></p>}
                     <p className="text-lg font-bold">Total: <span className="text-emerald-600">{formatCurrency(total)}</span></p>
                   </div>
                 </div>

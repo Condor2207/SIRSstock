@@ -6,6 +6,8 @@ import { createClient } from '@/lib/supabase';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { Plus, Search, Eye, X, Loader2, Handshake, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
+import { SearchSelect } from '@/components/SearchSelect';
+import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
 import type { Cliente, Banco, Venta } from '@/lib/types';
 
 interface CobroFacturaRow { venta_id: string; numero: string; total: number; saldo_pendiente: number; fecha: string; monto_aplicado: number; }
@@ -141,10 +143,12 @@ export default function CobrosPage() {
     }
   }
 
-  const filtered = cobros.filter(c =>
+  const filteredRaw = cobros.filter(c =>
     c.numero?.toLowerCase().includes(search.toLowerCase()) ||
     c.clientes?.nombre?.toLowerCase().includes(search.toLowerCase())
   );
+  const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filteredRaw);
+  const { paginated: filtered, page, setPage, pageSize, setPageSize, totalPages, total } = usePagination(filteredSorted);
 
   return (
     <>
@@ -173,11 +177,11 @@ export default function CobrosPage() {
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-gray-800/50">
                   <tr>
-                    <th className="table-header">N°</th>
-                    <th className="table-header">Fecha</th>
-                    <th className="table-header">Cliente</th>
-                    <th className="table-header">Total Facturas</th>
-                    <th className="table-header">Total Cobrado</th>
+                    <SortableTh label="N°" sortKey="numero" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Fecha" sortKey="fecha" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Cliente" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Total Facturas" sortKey="total_facturas" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Total Cobrado" sortKey="total_cobrado" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Estado</th>
                     <th className="table-header"></th>
                   </tr>
@@ -202,6 +206,7 @@ export default function CobrosPage() {
                   ))}
                 </tbody>
               </table>
+              <Pagination page={page} totalPages={totalPages} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
             </div>
           )}
         </div>
@@ -218,13 +223,21 @@ export default function CobrosPage() {
             <div className="flex-1 overflow-y-auto p-5 space-y-5">
 
               {/* Header */}
-              <div className="grid grid-cols-3 gap-4">
-                <div>
+              <div className="grid sm:grid-cols-3 gap-4">
+                <div className="sm:col-span-1">
                   <label className="label">Cliente *</label>
-                  <select className="input" value={formHeader.cliente_id} onChange={e => handleClienteChange(e.target.value)}>
-                    <option value="">Seleccionar...</option>
-                    {clientes.map(c => <option key={c.id} value={c.id}>{c.nombre}</option>)}
-                  </select>
+                  <SearchSelect
+                    options={clientes.map(c => ({ value: c.id, label: c.nombre, sublabel: c.documento || undefined }))}
+                    value={formHeader.cliente_id}
+                    onChange={handleClienteChange}
+                    placeholder="Seleccionar..."
+                  />
+                  {formHeader.cliente_id && (() => {
+                    const cli = clientes.find(c => c.id === formHeader.cliente_id);
+                    return cli?.documento ? (
+                      <p className="text-xs text-gray-500 mt-1">RUC/CI: <span className="font-semibold">{cli.documento}</span></p>
+                    ) : null;
+                  })()}
                 </div>
                 <div>
                   <label className="label">Fecha</label>

@@ -5,10 +5,10 @@ import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { formatCurrency, formatDate, formatNumber, diasHastaVencimiento, estadoVencimiento } from '@/lib/utils';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line } from 'recharts';
-import { Download, BarChart2, Package, Users, AlertTriangle, Loader2, CreditCard, BadgePercent, Receipt } from 'lucide-react';
+import { Download, BarChart2, Package, Users, AlertTriangle, Loader2, CreditCard, BadgePercent, Receipt, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
 
-type TabType = 'ventas' | 'stock' | 'cobrar' | 'vencimientos' | 'pagar' | 'comisiones' | 'gastos_credito';
+type TabType = 'ventas' | 'stock' | 'cobrar' | 'vencimientos' | 'pagar' | 'comisiones' | 'gastos_credito' | 'rg90';
 
 export default function ReportesPage() {
   const supabase = createClient();
@@ -160,6 +160,7 @@ export default function ReportesPage() {
     { id: 'comisiones', label: 'Comisiones pend.', icon: BadgePercent },
     { id: 'gastos_credito', label: 'Gastos a pagar', icon: Receipt },
     { id: 'vencimientos', label: 'Lotes por vencer', icon: AlertTriangle },
+    { id: 'rg90', label: 'RG90', icon: FileText },
   ];
 
   return (
@@ -510,6 +511,17 @@ export default function ReportesPage() {
                     </table>
                   </div>
                 )}
+              </div>
+            )}
+            {/* RG90 */}
+            {tab === 'rg90' && (
+              <div className="card p-8 text-center space-y-4">
+                <FileText className="w-12 h-12 mx-auto text-blue-400" />
+                <h3 className="text-lg font-semibold">Reporte RG90</h3>
+                <p className="text-sm text-gray-500">Generación del libro de compras y ventas para la SET (RG-90)</p>
+                <a href="/dashboard/reportes/rg90" className="btn-primary inline-flex items-center gap-2 mx-auto">
+                  <FileText className="w-4 h-4" /> Abrir RG90
+                </a>
               </div>
             )}
           </>

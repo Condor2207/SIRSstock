@@ -8,6 +8,7 @@ import { formatCurrency, calcularCuotas, formatDate } from '@/lib/utils';
 import { Plus, Trash2, ShoppingCart, Loader2, ArrowLeft, Search, Printer, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
+import { SearchSelect } from '@/components/SearchSelect';
 import type { Cliente, Producto, Lote, NuevaVentaItem, EmpresaConfig } from '@/lib/types';
 
 export default function NuevaVentaPage() {
@@ -492,29 +493,35 @@ export default function NuevaVentaPage() {
             {/* Cliente */}
             <div className="card p-5">
               <h2 className="section-title mb-4">Cliente</h2>
-              <select className="input" value={clienteId} onChange={e => handleClienteChange(e.target.value)}>
-                <option value="">Seleccionar cliente...</option>
-                {clientes.map(c => (
-                  <option key={c.id} value={c.id}>{c.nombre} — {c.documento}</option>
-                ))}
-              </select>
+              <SearchSelect
+                options={clientes.map(c => ({ value: c.id, label: c.nombre, sublabel: c.documento || undefined }))}
+                value={clienteId}
+                onChange={handleClienteChange}
+                placeholder="Seleccionar cliente..."
+              />
               {clienteSeleccionado && (
-                <div className="mt-3 p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm space-y-1">
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">Límite de crédito:</span>
-                    <span className="font-semibold">{formatCurrency(clienteSeleccionado.limite_credito)}</span>
+                <div className="mt-3 space-y-2">
+                  <div className="flex items-center gap-2 text-sm">
+                    <span className="label mb-0">RUC/CI:</span>
+                    <span className="font-semibold text-gray-700 dark:text-gray-300">{clienteSeleccionado.documento || '—'}</span>
                   </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">Saldo pendiente:</span>
-                    <span className={`font-semibold ${clienteSeleccionado.saldo_pendiente > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
-                      {formatCurrency(clienteSeleccionado.saldo_pendiente)}
-                    </span>
-                  </div>
-                  <div className="flex justify-between">
-                    <span className="text-gray-600 dark:text-gray-400">Crédito disponible:</span>
-                    <span className={`font-bold ${creditoDisponible <= 0 ? 'text-red-500' : 'text-emerald-600'}`}>
-                      {formatCurrency(creditoDisponible)}
-                    </span>
+                  <div className="p-3 bg-blue-50 dark:bg-blue-900/20 rounded-lg text-sm space-y-1">
+                    <div className="flex justify-between">
+                      <span className="text-gray-600 dark:text-gray-400">Límite de crédito:</span>
+                      <span className="font-semibold">{formatCurrency(clienteSeleccionado.limite_credito)}</span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600 dark:text-gray-400">Saldo pendiente:</span>
+                      <span className={`font-semibold ${clienteSeleccionado.saldo_pendiente > 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                        {formatCurrency(clienteSeleccionado.saldo_pendiente)}
+                      </span>
+                    </div>
+                    <div className="flex justify-between">
+                      <span className="text-gray-600 dark:text-gray-400">Crédito disponible:</span>
+                      <span className={`font-bold ${creditoDisponible <= 0 ? 'text-red-500' : 'text-emerald-600'}`}>
+                        {formatCurrency(creditoDisponible)}
+                      </span>
+                    </div>
                   </div>
                 </div>
               )}
