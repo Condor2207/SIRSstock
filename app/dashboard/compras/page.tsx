@@ -128,7 +128,7 @@ export default function ComprasPage() {
         condicion_pago: form.condicion_pago,
         numero_remito: form.numero_remito || null,
         subtotal: subtotalItems, total,
-        costo_flete: costo_flete || 0,
+        costo_flete: compra_servicios || 0,
         plazo_dias: parseInt(form.plazo_dias) || 0,
         cantidad_cuotas: parseInt(form.cantidad_cuotas) || 1,
         saldo_pendiente: form.condicion_pago === 'credito' ? total : 0,

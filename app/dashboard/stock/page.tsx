@@ -185,7 +185,7 @@ export default function StockPage() {
                     <tr><td colSpan={6} className="py-12 text-center text-gray-400">No se encontraron productos</td></tr>
                   ) : filtered.map(r => {
                     const stockBajo = r.stockTotal <= r.stockMinimo && r.stockMinimo > 0;
-                    const tieneVencProx = r.lotes.some(l => l.fecha_vencimiento && l.fecha_vencimiento <= in30);
+                    const tieneVencProx = r.lotes.some((l: any) => l.fecha_vencimiento && l.fecha_vencimiento <= in30);
                     return (
                       <>
                         <tr key={r.productoId} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
@@ -206,7 +206,7 @@ export default function StockPage() {
                                 <span className="text-gray-400 text-xs">Sin lotes</span>
                               ) : (
                                 <div className="space-y-1">
-                                  {r.lotes.map(l => {
+                                  {r.lotes.map((l: any) => {
                                     const ev = estadoVencimiento(l.fecha_vencimiento);
                                     return (
                                       <div key={l.id} className="flex items-center gap-2 text-xs">

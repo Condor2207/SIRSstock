@@ -103,7 +103,7 @@ export function useSort<T>(items: T[]) {
 interface SortableThProps {
   label: string;
   sortKey?: string;
-  currentKey?: string | null;
+  currentKey?: string | number | symbol | null;
   currentDir?: SortDir;
   onSort?: (key: string) => void;
   className?: string;

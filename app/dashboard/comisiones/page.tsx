@@ -61,6 +61,7 @@ export default function ComisionesPage() {
 
   const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filtered);
   const { paginated: filteredPage, page, setPage, pageSize, setPageSize, totalPages, total } = usePagination(filteredSorted);
+  const totalPendiente = filtered.filter(c => c.estado === 'pendiente').reduce((s, c) => s + c.monto, 0);
   const totalPagado = filtered.filter(c => c.estado === 'pagada').reduce((s, c) => s + c.monto, 0);
 
   // Agrupar totales por vendedor para el resumen
