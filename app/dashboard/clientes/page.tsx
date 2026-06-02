@@ -7,6 +7,7 @@ import { formatCurrency, porcentajeCredito } from '@/lib/utils';
 import { Plus, Search, Edit2, Users, X, Loader2, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Cliente, ListaPrecios, Vendedor, CondicionVenta } from '@/lib/types';
+import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
 
 export default function ClientesPage() {
   const supabase = createClient();
@@ -105,10 +106,12 @@ export default function ClientesPage() {
     }
   }
 
-  const filtered = clientes.filter(c =>
+  const filteredRaw = clientes.filter(c =>
     c.nombre.toLowerCase().includes(search.toLowerCase()) ||
     (c.documento || '').includes(search)
   );
+  const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filteredRaw as any[]);
+  const { paginated: filtered, page, setPage, pageSize, setPageSize, totalPages, total } = usePagination(filteredSorted);
 
   return (
     <>
@@ -137,13 +140,13 @@ export default function ClientesPage() {
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-gray-800/50">
                   <tr>
-                    <th className="table-header">Nombre</th>
+                    <SortableTh label="Nombre" sortKey="nombre" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Documento</th>
                     <th className="table-header">Teléfono</th>
-                    <th className="table-header">Límite Crédito</th>
-                    <th className="table-header">Saldo</th>
+                    <SortableTh label="Límite Crédito" sortKey="limite_credito" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Saldo" sortKey="saldo_pendiente" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Crédito Disp.</th>
-                    <th className="table-header">Estado</th>
+                    <SortableTh label="Estado" sortKey="activo" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Acciones</th>
                   </tr>
                 </thead>
@@ -198,6 +201,7 @@ export default function ClientesPage() {
                   })}
                 </tbody>
               </table>
+              <Pagination page={page} totalPages={totalPages} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
             </div>
           )}
         </div>

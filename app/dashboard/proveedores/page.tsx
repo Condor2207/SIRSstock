@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase';
 import { Plus, Search, Edit2, Truck, X, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Proveedor, CondicionVenta } from '@/lib/types';
+import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
 
 export default function ProveedoresPage() {
   const supabase = createClient();
@@ -90,10 +91,12 @@ export default function ProveedoresPage() {
     }
   }
 
-  const filtered = proveedores.filter(p =>
+  const filteredRaw = proveedores.filter(p =>
     p.nombre.toLowerCase().includes(search.toLowerCase()) ||
     (p.documento || '').includes(search)
   );
+  const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filteredRaw as any[]);
+  const { paginated: filtered, page, setPage, pageSize, setPageSize, totalPages, total } = usePagination(filteredSorted);
 
   return (
     <>
@@ -122,12 +125,12 @@ export default function ProveedoresPage() {
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-gray-800/50">
                   <tr>
-                    <th className="table-header">Nombre</th>
+                    <SortableTh label="Nombre" sortKey="nombre" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Documento</th>
                     <th className="table-header">Teléfono</th>
                     <th className="table-header">Email</th>
                     <th className="table-header">Condición pago</th>
-                    <th className="table-header">Estado</th>
+                    <SortableTh label="Estado" sortKey="activo" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Acciones</th>
                   </tr>
                 </thead>
@@ -156,6 +159,7 @@ export default function ProveedoresPage() {
                   ))}
                 </tbody>
               </table>
+              <Pagination page={page} totalPages={totalPages} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
             </div>
           )}
         </div>

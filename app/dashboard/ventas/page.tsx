@@ -7,6 +7,7 @@ import { formatCurrency, formatDateTime, estadoBadgeClass } from '@/lib/utils';
 import { Plus, Search, Eye, X, Loader2, ShoppingCart } from 'lucide-react';
 import Link from 'next/link';
 import type { Venta } from '@/lib/types';
+import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
 
 export default function VentasPage() {
   const supabase = createClient();
@@ -94,12 +95,14 @@ export default function VentasPage() {
     setDetalle(null);
   }
 
-  const filtered = ventas.filter(v => {
+  const filteredRaw = ventas.filter(v => {
     const term = search.toLowerCase();
     const matchSearch = v.numero?.toLowerCase().includes(term) || (v as any).clientes?.nombre?.toLowerCase().includes(term);
     const matchEstado = filtroEstado ? v.estado === filtroEstado : true;
     return matchSearch && matchEstado;
   });
+  const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filteredRaw as any[]);
+  const { paginated: filtered, page, setPage, pageSize, setPageSize, totalPages, total } = usePagination(filteredSorted);
 
   return (
     <>
@@ -140,13 +143,13 @@ export default function VentasPage() {
               <table className="w-full">
                 <thead className="bg-gray-50 dark:bg-gray-800/50">
                   <tr>
-                    <th className="table-header">N° Venta</th>
-                    <th className="table-header">Fecha</th>
+                    <SortableTh label="N° Venta" sortKey="numero" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Fecha" sortKey="fecha" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Cliente</th>
-                    <th className="table-header">Condición</th>
-                    <th className="table-header">Total</th>
-                    <th className="table-header">Saldo</th>
-                    <th className="table-header">Estado</th>
+                    <SortableTh label="Condición" sortKey="condicion_pago" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Total" sortKey="total" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Saldo" sortKey="saldo_pendiente" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Estado" sortKey="estado" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Acciones</th>
                   </tr>
                 </thead>
@@ -186,6 +189,7 @@ export default function VentasPage() {
                   ))}
                 </tbody>
               </table>
+              <Pagination page={page} totalPages={totalPages} pageSize={pageSize} total={total} onPageChange={setPage} onPageSizeChange={setPageSize} />
             </div>
           )}
         </div>
