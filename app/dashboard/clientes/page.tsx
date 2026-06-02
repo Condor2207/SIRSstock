@@ -109,7 +109,7 @@ export default function ClientesPage() {
   const filteredRaw = clientes.filter(c =>
     c.nombre.toLowerCase().includes(search.toLowerCase()) ||
     (c.documento || '').includes(search)
-  );
+  ).map(c => ({ ...c, credito_disponible: c.limite_credito - c.saldo_pendiente }));
   const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filteredRaw as any[]);
   const { paginated: filtered, page, setPage, pageSize, setPageSize, totalPages, total } = usePagination(filteredSorted);
 
@@ -141,11 +141,11 @@ export default function ClientesPage() {
                 <thead className="bg-gray-50 dark:bg-gray-800/50">
                   <tr>
                     <SortableTh label="Nombre" sortKey="nombre" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                    <th className="table-header">Documento</th>
-                    <th className="table-header">Teléfono</th>
+                    <SortableTh label="Documento" sortKey="documento" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Teléfono" sortKey="telefono" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Límite Crédito" sortKey="limite_credito" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Saldo" sortKey="saldo_pendiente" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                    <th className="table-header">Crédito Disp.</th>
+                    <SortableTh label="Crédito Disp." sortKey="credito_disponible" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Estado" sortKey="activo" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Acciones</th>
                   </tr>

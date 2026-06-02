@@ -100,7 +100,7 @@ export default function VentasPage() {
     const matchSearch = v.numero?.toLowerCase().includes(term) || (v as any).clientes?.nombre?.toLowerCase().includes(term);
     const matchEstado = filtroEstado ? v.estado === filtroEstado : true;
     return matchSearch && matchEstado;
-  });
+  }).map(v => ({ ...v, cliente_nombre: (v as any).clientes?.nombre || '' }));
   const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filteredRaw as any[]);
   const { paginated: filtered, page, setPage, pageSize, setPageSize, totalPages, total } = usePagination(filteredSorted);
 
@@ -145,7 +145,7 @@ export default function VentasPage() {
                   <tr>
                     <SortableTh label="N° Venta" sortKey="numero" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Fecha" sortKey="fecha" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                    <th className="table-header">Cliente</th>
+                    <SortableTh label="Cliente" sortKey="cliente_nombre" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Condición" sortKey="condicion_pago" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Total" sortKey="total" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Saldo" sortKey="saldo_pendiente" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />

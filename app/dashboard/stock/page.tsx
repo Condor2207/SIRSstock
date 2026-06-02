@@ -138,7 +138,7 @@ export default function StockPage() {
     if (filtro === 'vencimiento') return r.lotes.some(l => l.fecha_vencimiento && l.fecha_vencimiento <= in30);
     if (filtro === 'sin-lote') return r.controlLote && r.lotes.length === 0;
     return true;
-  });
+  }).map(r => ({ ...r, lotesCount: r.lotes.length, stockEstado: r.stockTotal <= r.stockMinimo && r.stockMinimo > 0 ? 'bajo' : 'ok' }));
   const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filteredRaw as any[]);
   const { paginated: filtered, page, setPage, pageSize, setPageSize, totalPages, total } = usePagination(filteredSorted);
 
@@ -176,8 +176,8 @@ export default function StockPage() {
                     <SortableTh label="Producto" sortKey="nombre" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Categoría" sortKey="categoria" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Stock Total" sortKey="stockTotal" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                    <th className="table-header">Lotes activos</th>
-                    <th className="table-header">Estado</th>
+                    <SortableTh label="Lotes activos" sortKey="lotesCount" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Estado" sortKey="stockEstado" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">

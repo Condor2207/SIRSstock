@@ -57,7 +57,7 @@ export default function ComisionesPage() {
     if (fechaDesde && c.fecha && c.fecha < fechaDesde) return false;
     if (fechaHasta && c.fecha && c.fecha > fechaHasta) return false;
     return true;
-  });
+  }).map(c => ({ ...c, cliente_nombre: c.clientes?.nombre || '', producto_nombre: c.productos?.nombre || '' }));
 
   const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filtered);
   const { paginated: filteredPage, page, setPage, pageSize, setPageSize, totalPages, total } = usePagination(filteredSorted);
@@ -142,11 +142,11 @@ export default function ComisionesPage() {
                     <SortableTh label="Fecha" sortKey="fecha" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Venta" sortKey="ventas" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Vendedor" sortKey="vendedores" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                    <th className="table-header">Cliente</th>
-                    <th className="table-header">Producto</th>
+                    <SortableTh label="Cliente" sortKey="cliente_nombre" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Producto" sortKey="producto_nombre" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Cant." sortKey="cantidad" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="P. s/IVA" sortKey="precio_sin_iva" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                    <th className="table-header">%</th>
+                    <SortableTh label="%" sortKey="porcentaje" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Monto" sortKey="monto" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Estado" sortKey="estado" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header"></th>

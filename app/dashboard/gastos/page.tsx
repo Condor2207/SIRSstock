@@ -81,7 +81,7 @@ export default function GastosPage() {
   const filteredRaw = gastos.filter(g =>
     g.titulo.toLowerCase().includes(search.toLowerCase()) ||
     (g.categoria || '').toLowerCase().includes(search.toLowerCase())
-  );
+  ).map(g => ({ ...g, proveedor_nombre: (g as any).proveedores?.nombre || '' }));
   const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filteredRaw as any[]);
   const { paginated: filtered, page, setPage, pageSize, setPageSize, totalPages, total } = usePagination(filteredSorted);
 
@@ -126,7 +126,7 @@ export default function GastosPage() {
                     <SortableTh label="Fecha" sortKey="fecha" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Título" sortKey="titulo" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Categoría" sortKey="categoria" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                    <th className="table-header">Proveedor</th>
+                    <SortableTh label="Proveedor" sortKey="proveedor_nombre" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Medio pago" sortKey="medio_pago" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Monto" sortKey="monto" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                   </tr>

@@ -126,10 +126,10 @@ export default function ProveedoresPage() {
                 <thead className="bg-gray-50 dark:bg-gray-800/50">
                   <tr>
                     <SortableTh label="Nombre" sortKey="nombre" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                    <th className="table-header">Documento</th>
-                    <th className="table-header">Teléfono</th>
-                    <th className="table-header">Email</th>
-                    <th className="table-header">Condición pago</th>
+                    <SortableTh label="Documento" sortKey="documento" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Teléfono" sortKey="telefono" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Email" sortKey="email" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Condición pago" sortKey="condicion_pago" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Estado" sortKey="activo" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Acciones</th>
                   </tr>

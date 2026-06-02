@@ -228,7 +228,7 @@ export default function ProductosPage() {
                     <SortableTh label="Unidad" sortKey="unidad_medida" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Precio Venta" sortKey="precio_venta" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Stock" sortKey="stock_actual" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                    <th className="table-header">Estado</th>
+                    <SortableTh label="Estado" sortKey="activo" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Acciones</th>
                   </tr>
                 </thead>
