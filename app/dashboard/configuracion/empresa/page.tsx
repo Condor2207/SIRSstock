@@ -7,6 +7,14 @@ import { Save, Loader2, Building2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { EmpresaConfig } from '@/lib/types';
 
+function getEmpresaConfigErrorMessage(error?: { message?: string } | null) {
+  if (error?.message?.includes("Could not find the table 'public.empresa_config'")) {
+    return 'Falta la tabla de configuración de empresa en Supabase. Ejecuta la migración 006_empresa_config_hotfix.sql.';
+  }
+
+  return error?.message || 'No se pudo guardar la configuración de empresa';
+}
+
 export default function EmpresaConfigPage() {
   const supabase = createClient();
   const [loading, setLoading] = useState(true);
@@ -18,8 +26,9 @@ export default function EmpresaConfigPage() {
   });
 
   useEffect(() => {
-    supabase.from('empresa_config').select('*').eq('id', 1).single().then(({ data }) => {
+    supabase.from('empresa_config').select('*').eq('id', 1).single().then(({ data, error }) => {
       if (data) setForm(data);
+      else if (error) toast.error(getEmpresaConfigErrorMessage(error));
       setLoading(false);
     });
   }, []);
@@ -35,7 +44,7 @@ export default function EmpresaConfigPage() {
       id: 1, ...form, updated_at: new Date().toISOString(),
     });
     setSaving(false);
-    if (error) toast.error(error.message);
+    if (error) toast.error(getEmpresaConfigErrorMessage(error));
     else toast.success('Configuración guardada');
   }
 

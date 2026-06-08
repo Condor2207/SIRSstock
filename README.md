@@ -27,8 +27,17 @@ Sistema full-stack de gestión comercial para empresas productoras y distribuido
 ### 1. Configurar Supabase
 
 1. Crear proyecto en [supabase.com](https://supabase.com)
-2. Ir a **SQL Editor** y ejecutar el archivo `supabase/migrations/001_init.sql`
-3. Copiar URL y Anon Key desde **Settings → API**
+2. Ir a **SQL Editor** y ejecutar **todas** las migraciones de `supabase/migrations/` en orden:
+   - `001_init.sql`
+   - `002_datos_demo.sql`
+   - `003_rg90.sql`
+   - `003_ajustes_core.sql`
+   - `004_configuraciones.sql`
+   - `004_cobros_comisiones.sql`
+   - `005_fixes.sql`
+   - `006_empresa_config_hotfix.sql`
+3. Si ya tenías una base creada y falla Configuración → Empresa con `Could not find the table 'public.empresa_config' in the schema cache`, ejecutá al menos `006_empresa_config_hotfix.sql`
+4. Copiar URL y Anon Key desde **Settings → API**
 
 ### 2. Variables de entorno
 
