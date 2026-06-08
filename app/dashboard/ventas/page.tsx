@@ -5,6 +5,7 @@ import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { formatCurrency, formatDateTime, estadoBadgeClass } from '@/lib/utils';
 import { Plus, Search, Eye, X, Loader2, ShoppingCart } from 'lucide-react';
+import toast from 'react-hot-toast';
 import Link from 'next/link';
 import type { Venta } from '@/lib/types';
 import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
@@ -81,18 +82,30 @@ export default function VentasPage() {
   }
 
   async function registrarPago(ventaId: string, monto: number, medioPago: string) {
-    await supabase.from('venta_pagos').insert({ venta_id: ventaId, monto, medio_pago: medioPago, fecha: new Date().toISOString().split('T')[0] });
-    // actualizar saldo pendiente
-    const venta = ventas.find(v => v.id === ventaId);
-    if (venta) {
-      const nuevoSaldo = Math.max(0, venta.saldo_pendiente - monto);
-      const nuevoEstado = nuevoSaldo === 0 ? 'pagado' : 'parcial';
-      await supabase.from('ventas').update({ saldo_pendiente: nuevoSaldo, estado: nuevoEstado }).eq('id', ventaId);
-      // actualizar saldo del cliente
-      try { await supabase.rpc('update_cliente_saldo' as any, { p_cliente_id: venta.cliente_id, p_monto: -monto }); } catch { /* ignorar */ }
+    try {
+      const { error: pagoErr } = await supabase.from('venta_pagos').insert({ venta_id: ventaId, monto, medio_pago: medioPago, fecha: new Date().toISOString().split('T')[0] });
+      if (pagoErr) throw pagoErr;
+      // actualizar saldo pendiente
+      const venta = ventas.find(v => v.id === ventaId);
+      if (venta) {
+        const nuevoSaldo = Math.max(0, venta.saldo_pendiente - monto);
+        const nuevoEstado = nuevoSaldo === 0 ? 'pagado' : 'parcial';
+        const { error: ventaErr } = await supabase.from('ventas').update({ saldo_pendiente: nuevoSaldo, estado: nuevoEstado }).eq('id', ventaId);
+        if (ventaErr) throw ventaErr;
+        // actualizar saldo del cliente directamente
+        const { data: cli, error: cliErr } = await supabase.from('clientes').select('saldo_pendiente').eq('id', venta.cliente_id).single();
+        if (cliErr) throw cliErr;
+        if (cli) {
+          const { error: cliUpdateErr } = await supabase.from('clientes').update({ saldo_pendiente: Math.max(0, cli.saldo_pendiente - monto) }).eq('id', venta.cliente_id);
+          if (cliUpdateErr) throw cliUpdateErr;
+        }
+      }
+      toast.success('Pago registrado');
+      loadVentas();
+      setDetalle(null);
+    } catch (e: any) {
+      toast.error(e.message || 'Error al registrar el pago');
     }
-    loadVentas();
-    setDetalle(null);
   }
 
   const filteredRaw = ventas.filter(v => {

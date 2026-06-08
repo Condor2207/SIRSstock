@@ -38,7 +38,8 @@ export default function ComisionesPage() {
   }, [load]);
 
   async function marcarPagada(id: string) {
-    await supabase.from('comisiones').update({ estado: 'pagada', fecha_pago: new Date().toISOString().split('T')[0] }).eq('id', id);
+    const { error } = await supabase.from('comisiones').update({ estado: 'pagada', fecha_pago: new Date().toISOString().split('T')[0] }).eq('id', id);
+    if (error) { toast.error(error.message || 'Error al actualizar la comisión'); return; }
     toast.success('Comisión marcada como pagada');
     load();
   }
@@ -46,7 +47,8 @@ export default function ComisionesPage() {
   async function marcarSeleccionPagada() {
     const pendientes = filtered.filter(c => c.estado === 'pendiente').map(c => c.id);
     if (pendientes.length === 0) { toast.error('No hay comisiones pendientes en la selección actual'); return; }
-    await supabase.from('comisiones').update({ estado: 'pagada', fecha_pago: new Date().toISOString().split('T')[0] }).in('id', pendientes);
+    const { error } = await supabase.from('comisiones').update({ estado: 'pagada', fecha_pago: new Date().toISOString().split('T')[0] }).in('id', pendientes);
+    if (error) { toast.error(error.message || 'Error al actualizar las comisiones'); return; }
     toast.success(`${pendientes.length} comisiones marcadas como pagadas`);
     load();
   }
