@@ -9,7 +9,7 @@ import type { EmpresaConfig } from '@/lib/types';
 
 function getEmpresaConfigErrorMessage(error?: { message?: string } | null) {
   if (error?.message?.includes("Could not find the table 'public.empresa_config'")) {
-    return 'Falta la tabla de configuración de empresa en Supabase. Ejecutá la migración 006_empresa_config_hotfix.sql.';
+    return 'Falta la tabla de configuración de empresa en Supabase. Ejecuta la migración 006_empresa_config_hotfix.sql.';
   }
 
   return error?.message || 'No se pudo guardar la configuración de empresa';
