@@ -282,24 +282,63 @@ ALTER TABLE cobro_retenciones ENABLE ROW LEVEL SECURITY;
 ALTER TABLE cobro_medios_pago ENABLE ROW LEVEL SECURITY;
 ALTER TABLE comisiones ENABLE ROW LEVEL SECURITY;
 
-CREATE POLICY "auth_all_unidades" ON unidades_medida FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_clasificaciones" ON clasificaciones FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_tasas_iva" ON tasas_iva FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_listas_precios" ON listas_precios FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_marcas" ON marcas FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_lineas" ON lineas FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_grupos" ON grupos FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_bancos" ON bancos FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_condiciones" ON condiciones_venta FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_vendedores" ON vendedores FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_empresa_config" ON empresa_config FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_producto_precios" ON producto_precios FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_compra_cuotas" ON compra_cuotas FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_cobros" ON cobros FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_cobro_facturas" ON cobro_facturas FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_cobro_retenciones" ON cobro_retenciones FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_cobro_medios_pago" ON cobro_medios_pago FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_comisiones" ON comisiones FOR ALL TO authenticated USING (true) WITH CHECK (true);
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'unidades_medida' AND policyname = 'auth_all_unidades') THEN
+    CREATE POLICY "auth_all_unidades" ON unidades_medida FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'clasificaciones' AND policyname = 'auth_all_clasificaciones') THEN
+    CREATE POLICY "auth_all_clasificaciones" ON clasificaciones FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'tasas_iva' AND policyname = 'auth_all_tasas_iva') THEN
+    CREATE POLICY "auth_all_tasas_iva" ON tasas_iva FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'listas_precios' AND policyname = 'auth_all_listas_precios') THEN
+    CREATE POLICY "auth_all_listas_precios" ON listas_precios FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'marcas' AND policyname = 'auth_all_marcas') THEN
+    CREATE POLICY "auth_all_marcas" ON marcas FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'lineas' AND policyname = 'auth_all_lineas') THEN
+    CREATE POLICY "auth_all_lineas" ON lineas FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'grupos' AND policyname = 'auth_all_grupos') THEN
+    CREATE POLICY "auth_all_grupos" ON grupos FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'bancos' AND policyname = 'auth_all_bancos') THEN
+    CREATE POLICY "auth_all_bancos" ON bancos FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'condiciones_venta' AND policyname = 'auth_all_condiciones') THEN
+    CREATE POLICY "auth_all_condiciones" ON condiciones_venta FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'vendedores' AND policyname = 'auth_all_vendedores') THEN
+    CREATE POLICY "auth_all_vendedores" ON vendedores FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'empresa_config' AND policyname = 'auth_all_empresa_config') THEN
+    CREATE POLICY "auth_all_empresa_config" ON empresa_config FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'producto_precios' AND policyname = 'auth_all_producto_precios') THEN
+    CREATE POLICY "auth_all_producto_precios" ON producto_precios FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'compra_cuotas' AND policyname = 'auth_all_compra_cuotas') THEN
+    CREATE POLICY "auth_all_compra_cuotas" ON compra_cuotas FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'cobros' AND policyname = 'auth_all_cobros') THEN
+    CREATE POLICY "auth_all_cobros" ON cobros FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'cobro_facturas' AND policyname = 'auth_all_cobro_facturas') THEN
+    CREATE POLICY "auth_all_cobro_facturas" ON cobro_facturas FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'cobro_retenciones' AND policyname = 'auth_all_cobro_retenciones') THEN
+    CREATE POLICY "auth_all_cobro_retenciones" ON cobro_retenciones FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'cobro_medios_pago' AND policyname = 'auth_all_cobro_medios_pago') THEN
+    CREATE POLICY "auth_all_cobro_medios_pago" ON cobro_medios_pago FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE tablename = 'comisiones' AND policyname = 'auth_all_comisiones') THEN
+    CREATE POLICY "auth_all_comisiones" ON comisiones FOR ALL TO authenticated USING (true) WITH CHECK (true);
+  END IF;
+END $$;
 
 -- ============================================================
 -- DATOS SEMILLA
