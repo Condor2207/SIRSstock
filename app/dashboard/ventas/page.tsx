@@ -93,9 +93,11 @@ export default function VentasPage() {
         const { error: ventaErr } = await supabase.from('ventas').update({ saldo_pendiente: nuevoSaldo, estado: nuevoEstado }).eq('id', ventaId);
         if (ventaErr) throw ventaErr;
         // actualizar saldo del cliente directamente
-        const { data: cli } = await supabase.from('clientes').select('saldo_pendiente').eq('id', venta.cliente_id).single();
+        const { data: cli, error: cliErr } = await supabase.from('clientes').select('saldo_pendiente').eq('id', venta.cliente_id).single();
+        if (cliErr) throw cliErr;
         if (cli) {
-          await supabase.from('clientes').update({ saldo_pendiente: Math.max(0, cli.saldo_pendiente - monto) }).eq('id', venta.cliente_id);
+          const { error: cliUpdateErr } = await supabase.from('clientes').update({ saldo_pendiente: Math.max(0, cli.saldo_pendiente - monto) }).eq('id', venta.cliente_id);
+          if (cliUpdateErr) throw cliUpdateErr;
         }
       }
       toast.success('Pago registrado');
