@@ -31,12 +31,12 @@ Sistema full-stack de gestión comercial para empresas productoras y distribuido
    - `001_init.sql`
    - `002_datos_demo.sql`
    - `003_rg90.sql`
-   - `003_ajustes_core.sql`
-   - `004_configuraciones.sql`
-   - `004_cobros_comisiones.sql`
-   - `005_fixes.sql`
-   - `006_empresa_config_hotfix.sql`
-3. Si ya tenías una base creada y falla Configuración → Empresa con `Could not find the table 'public.empresa_config' in the schema cache`, ejecutá al menos `006_empresa_config_hotfix.sql`
+   - `004_ajustes_core.sql`
+   - `005_configuraciones.sql`
+   - `006_cobros_comisiones.sql`
+   - `007_fixes.sql`
+   - `008_empresa_config_hotfix.sql`
+3. Si ya tenías una base creada y aparece `Could not find the table 'public.xxx' in the schema cache`, ejecutá **todas** las migraciones desde `003_rg90.sql` en adelante — seguras de re-ejecutar gracias a `IF NOT EXISTS`.
 4. Copiar URL y Anon Key desde **Settings → API**
 
 ### 2. Variables de entorno
