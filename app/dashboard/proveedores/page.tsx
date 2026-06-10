@@ -60,15 +60,23 @@ export default function ProveedoresPage() {
   }
 
   async function handleSave() {
-    if (!form.nombre) { toast.error('El nombre es obligatorio'); return; }
-    if (form.tipo_documento === 'RUC' && form.documento && !validateRUC(form.documento)) {
+    const nombre = form.nombre.trim();
+    const documento = form.documento.trim();
+    const telefono = form.telefono.trim();
+    const email = form.email.trim();
+
+    if (!nombre) { toast.error('El nombre es obligatorio'); return; }
+    if (!documento) { toast.error('El RUC/documento es obligatorio'); return; }
+    if (form.tipo_documento === 'RUC' && !validateRUC(documento)) {
       toast.error('Formato RUC inválido. Ej: 80046906-2'); return;
     }
+    if (!telefono && !email) { toast.error('Debés cargar teléfono o email'); return; }
+
     setSaving(true);
     const payload = {
-      nombre: form.nombre, documento: form.documento || null, tipo_documento: form.tipo_documento,
-      direccion: form.direccion || null, telefono: form.telefono || null, email: form.email || null,
-      condicion_pago: form.condicion_pago || null,
+      nombre, documento, tipo_documento: form.tipo_documento,
+      direccion: form.direccion.trim() || null, telefono: telefono || null, email: email || null,
+      condicion_pago: form.condicion_pago.trim() || null,
       condicion_venta_id: form.condicion_venta_id || null,
       activo: form.activo,
     };
@@ -185,7 +193,7 @@ export default function ProveedoresPage() {
                   </select>
                 </div>
                 <div>
-                  <label className="label">Número doc.</label>
+                  <label className="label">Número doc. *</label>
                   <input className="input" value={form.documento} onChange={e => setForm(f => ({ ...f, documento: e.target.value }))} />
                 </div>
               </div>
@@ -195,11 +203,11 @@ export default function ProveedoresPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="label">Teléfono</label>
+                  <label className="label">Teléfono * (o Email)</label>
                   <input className="input" value={form.telefono} onChange={e => setForm(f => ({ ...f, telefono: e.target.value }))} />
                 </div>
                 <div>
-                  <label className="label">Email</label>
+                  <label className="label">Email * (o Teléfono)</label>
                   <input type="email" className="input" value={form.email} onChange={e => setForm(f => ({ ...f, email: e.target.value }))} />
                 </div>
               </div>
