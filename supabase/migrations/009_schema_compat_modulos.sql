@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS bancos (
 
 ALTER TABLE ventas
   ADD COLUMN IF NOT EXISTS timbrado TEXT,
-  ADD COLUMN IF NOT EXISTS tasa_iva NUMERIC(5,2) NOT NULL DEFAULT 10,
+  ADD COLUMN IF NOT EXISTS tasa_iva NUMERIC(5,2) DEFAULT 10,
   ADD COLUMN IF NOT EXISTS nota_remision TEXT,
   ADD COLUMN IF NOT EXISTS fecha_vencimiento_factura DATE,
   ADD COLUMN IF NOT EXISTS motivo_anulacion TEXT;
@@ -78,7 +78,7 @@ ALTER TABLE clientes
   ADD COLUMN IF NOT EXISTS lista_precios_id UUID REFERENCES listas_precios(id),
   ADD COLUMN IF NOT EXISTS vendedor_id UUID REFERENCES vendedores(id),
   ADD COLUMN IF NOT EXISTS condicion_venta_id UUID REFERENCES condiciones_venta(id),
-  ADD COLUMN IF NOT EXISTS es_exterior BOOLEAN NOT NULL DEFAULT FALSE;
+  ADD COLUMN IF NOT EXISTS es_exterior BOOLEAN DEFAULT FALSE;
 
 ALTER TABLE proveedores
   ADD COLUMN IF NOT EXISTS condicion_venta_id UUID REFERENCES condiciones_venta(id);
@@ -111,7 +111,7 @@ CREATE TABLE IF NOT EXISTS compra_cuotas (
 -- =============================
 
 ALTER TABLE gastos
-  ADD COLUMN IF NOT EXISTS condicion TEXT DEFAULT 'debito' CHECK (condicion IN ('debito','credito')),
+  ADD COLUMN IF NOT EXISTS condicion TEXT DEFAULT 'debito',
   ADD COLUMN IF NOT EXISTS fecha_vencimiento DATE,
   ADD COLUMN IF NOT EXISTS numero_transaccion TEXT,
   ADD COLUMN IF NOT EXISTS banco_id UUID REFERENCES bancos(id) ON DELETE SET NULL,
