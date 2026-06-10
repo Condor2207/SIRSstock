@@ -38,10 +38,23 @@ export default function EmpresaConfigPage() {
   }
 
   async function handleSave() {
-    if (!form.nombre || !form.ruc) { toast.error('Nombre y RUC son obligatorios'); return; }
+    const nombre = (form.nombre || '').trim();
+    const ruc = (form.ruc || '').trim();
+    const telefono = (form.telefono || '').trim();
+    const email = (form.email || '').trim();
+
+    if (!nombre || !ruc) { toast.error('Nombre y RUC son obligatorios'); return; }
+    if (!telefono && !email) { toast.error('Debés cargar teléfono o email'); return; }
+
     setSaving(true);
     const { error } = await supabase.from('empresa_config').upsert({
-      id: 1, ...form, updated_at: new Date().toISOString(),
+      id: 1,
+      ...form,
+      nombre,
+      ruc,
+      telefono: telefono || null,
+      email: email || null,
+      updated_at: new Date().toISOString(),
     });
     setSaving(false);
     if (error) toast.error(getEmpresaConfigErrorMessage(error));
@@ -78,11 +91,11 @@ export default function EmpresaConfigPage() {
               <input className="input" value={form.direccion || ''} onChange={e => set('direccion', e.target.value)} />
             </div>
             <div>
-              <label className="label">Teléfono</label>
+              <label className="label">Teléfono * (o Email)</label>
               <input className="input" value={form.telefono || ''} onChange={e => set('telefono', e.target.value)} />
             </div>
             <div>
-              <label className="label">Email</label>
+              <label className="label">Email * (o Teléfono)</label>
               <input className="input" type="email" value={form.email || ''} onChange={e => set('email', e.target.value)} />
             </div>
           </div>

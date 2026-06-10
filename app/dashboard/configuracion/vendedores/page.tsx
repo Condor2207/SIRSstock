@@ -29,9 +29,15 @@ export default function VendedoresPage() {
   function openEdit(v: Vendedor) { setEditando(v); setForm({ nombre: v.nombre, telefono: v.telefono || '', email: v.email || '', activo: v.activo }); setShowModal(true); }
 
   async function handleSave() {
-    if (!form.nombre) { toast.error('El nombre es obligatorio'); return; }
+    const nombre = form.nombre.trim();
+    const telefono = form.telefono.trim();
+    const email = form.email.trim();
+
+    if (!nombre) { toast.error('El nombre es obligatorio'); return; }
+    if (!telefono && !email) { toast.error('Debés cargar teléfono o email'); return; }
+
     setSaving(true);
-    const payload = { nombre: form.nombre.trim(), telefono: form.telefono || null, email: form.email || null, activo: form.activo };
+    const payload = { nombre, telefono: telefono || null, email: email || null, activo: form.activo };
     const { error } = editando
       ? await supabase.from('vendedores').update(payload).eq('id', editando.id)
       : await supabase.from('vendedores').insert(payload);
@@ -81,8 +87,8 @@ export default function VendedoresPage() {
             </div>
             <div className="space-y-4">
               <div><label className="label">Nombre completo *</label><input className="input" value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))} /></div>
-              <div><label className="label">Teléfono</label><input className="input" value={form.telefono} onChange={e => setForm(p => ({ ...p, telefono: e.target.value }))} /></div>
-              <div><label className="label">Email</label><input className="input" type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
+              <div><label className="label">Teléfono * (o Email)</label><input className="input" value={form.telefono} onChange={e => setForm(p => ({ ...p, telefono: e.target.value }))} /></div>
+              <div><label className="label">Email * (o Teléfono)</label><input className="input" type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
               <div className="flex items-center gap-2">
                 <input type="checkbox" id="activo_v" checked={form.activo} onChange={e => setForm(p => ({ ...p, activo: e.target.checked }))} />
                 <label htmlFor="activo_v" className="text-sm text-gray-700 dark:text-gray-300">Activo</label>
