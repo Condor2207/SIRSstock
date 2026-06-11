@@ -181,7 +181,7 @@ export default function NuevaVentaPage() {
       const numVenta = `V-${String((count || 0) + 1).padStart(5, '0')}`;
 
       // Crear venta
-      const { data: venta, error: ventaErr } = await supabase.from('ventas').insert({
+      const ventaPayloadBase = {
         numero: numVenta,
         fecha: new Date().toISOString(),
         cliente_id: clienteId,
@@ -196,11 +196,18 @@ export default function NuevaVentaPage() {
         numero_factura: numeroFactura || null,
         punto_venta: puntoVenta || null,
         timbrado: timbrado || null,
-        tasa_iva: tasaIva,
         nota_remision: notaRemision || null,
         notas: notas || null,
+      };
+      let { data: venta, error: ventaErr } = await supabase.from('ventas').insert({
+        ...ventaPayloadBase,
+        tasa_iva: tasaIva,
       }).select().single();
-
+      if (ventaErr && ventaErr.message?.includes(`could not find the 'tasa_iva' column`)) {
+        const retry = await supabase.from('ventas').insert(ventaPayloadBase).select().single();
+        venta = retry.data;
+        ventaErr = retry.error;
+      }
       if (ventaErr) throw ventaErr;
 
       // Crear items con IVA por ítem
