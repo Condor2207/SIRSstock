@@ -12,13 +12,19 @@ import { SearchSelect } from '@/components/SearchSelect';
 import type { PostgrestError } from '@supabase/supabase-js';
 import type { Cliente, Producto, Lote, NuevaVentaItem, EmpresaConfig } from '@/lib/types';
 
-function isMissingVentasTasaIvaColumn(error: PostgrestError | null) {
-  if (!error) return false;
-  const message = error.message?.toLowerCase() || '';
-  const details = error.details?.toLowerCase() || '';
-  const missingColumnMessage = /could not find.*tasa_iva.*column/i.test(message);
-  const postgrestMissingColumn = error.code === 'PGRST204' && (message.includes('tasa_iva') || details.includes('tasa_iva'));
-  return missingColumnMessage || postgrestMissingColumn;
+// Columns added in later migrations (003, 009) that may be absent in older deployed schemas
+const OPTIONAL_VENTA_COLUMNS = ['tasa_iva', 'timbrado', 'nota_remision', 'fecha_vencimiento_factura', 'motivo_anulacion'];
+
+function getMissingVentasColumn(error: PostgrestError | null): string | null {
+  if (!error) return null;
+  const message = error.message || '';
+  const details = error.details || '';
+  for (const col of OPTIONAL_VENTA_COLUMNS) {
+    const missingMsg = new RegExp(`could not find.*${col}.*column`, 'i').test(message);
+    const pgrst204 = error.code === 'PGRST204' && (message.toLowerCase().includes(col) || details.toLowerCase().includes(col));
+    if (missingMsg || pgrst204) return col;
+  }
+  return null;
 }
 
 export default function NuevaVentaPage() {
@@ -209,18 +215,21 @@ export default function NuevaVentaPage() {
         nota_remision: notaRemision || null,
         notas: notas || null,
       };
-      let { data: venta, error: ventaErr } = await supabase.from('ventas').insert({
-        ...ventaPayloadBase,
-        tasa_iva: tasaIva,
-      }).select().single();
-      if (isMissingVentasTasaIvaColumn(ventaErr)) {
-        console.warn('ventas.tasa_iva no disponible en schema cache; reintentando alta sin esa columna');
-        const retryResponse = await supabase.from('ventas').insert(ventaPayloadBase).select().single();
-        venta = retryResponse.data;
-        ventaErr = retryResponse.error;
-        if (ventaErr) {
-          console.error('Falló el reintento de alta de venta sin tasa_iva', ventaErr);
-        }
+      // Retry stripping optional columns absent in older schemas (003/009 not yet applied)
+      let ventaPayload: Record<string, unknown> = { ...ventaPayloadBase, tasa_iva: tasaIva };
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      let venta: any = null;
+      let ventaErr: PostgrestError | null = null;
+      for (let attempt = 0; attempt <= OPTIONAL_VENTA_COLUMNS.length; attempt++) {
+        const res = await supabase.from('ventas').insert(ventaPayload as any).select().single();
+        venta = res.data;
+        ventaErr = res.error;
+        const missingCol = getMissingVentasColumn(ventaErr);
+        if (!missingCol) break;
+        console.warn(`ventas.${missingCol} no disponible en schema cache; reintentando sin esa columna`);
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        const { [missingCol]: _removed, ...remaining } = ventaPayload;
+        ventaPayload = remaining;
       }
       if (ventaErr) throw ventaErr;
 
