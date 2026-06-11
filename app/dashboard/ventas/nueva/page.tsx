@@ -9,7 +9,17 @@ import { Plus, Trash2, ShoppingCart, Loader2, ArrowLeft, Search, Printer, CheckC
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import { SearchSelect } from '@/components/SearchSelect';
+import type { PostgrestError } from '@supabase/supabase-js';
 import type { Cliente, Producto, Lote, NuevaVentaItem, EmpresaConfig } from '@/lib/types';
+
+function isMissingVentasTasaIvaColumn(error: PostgrestError | null) {
+  if (!error) return false;
+  const message = error.message?.toLowerCase() || '';
+  const details = error.details?.toLowerCase() || '';
+  const missingColumnMessage = /could not find.*tasa_iva.*column/i.test(message);
+  const postgrestMissingColumn = error.code === 'PGRST204' && (message.includes('tasa_iva') || details.includes('tasa_iva'));
+  return missingColumnMessage || postgrestMissingColumn;
+}
 
 export default function NuevaVentaPage() {
   const router = useRouter();
@@ -181,7 +191,7 @@ export default function NuevaVentaPage() {
       const numVenta = `V-${String((count || 0) + 1).padStart(5, '0')}`;
 
       // Crear venta
-      const { data: venta, error: ventaErr } = await supabase.from('ventas').insert({
+      const ventaPayloadBase = {
         numero: numVenta,
         fecha: new Date().toISOString(),
         cliente_id: clienteId,
@@ -196,11 +206,22 @@ export default function NuevaVentaPage() {
         numero_factura: numeroFactura || null,
         punto_venta: puntoVenta || null,
         timbrado: timbrado || null,
-        tasa_iva: tasaIva,
         nota_remision: notaRemision || null,
         notas: notas || null,
+      };
+      let { data: venta, error: ventaErr } = await supabase.from('ventas').insert({
+        ...ventaPayloadBase,
+        tasa_iva: tasaIva,
       }).select().single();
-
+      if (isMissingVentasTasaIvaColumn(ventaErr)) {
+        console.warn('ventas.tasa_iva no disponible en schema cache; reintentando alta sin esa columna');
+        const retryResponse = await supabase.from('ventas').insert(ventaPayloadBase).select().single();
+        venta = retryResponse.data;
+        ventaErr = retryResponse.error;
+        if (ventaErr) {
+          console.error('Falló el reintento de alta de venta sin tasa_iva', ventaErr);
+        }
+      }
       if (ventaErr) throw ventaErr;
 
       // Crear items con IVA por ítem
