@@ -220,14 +220,13 @@ export default function NuevaVentaPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       let venta: any = null;
       let ventaErr: PostgrestError | null = null;
-      for (let attempt = 0; attempt <= OPTIONAL_VENTA_COLUMNS.length; attempt++) {
+      for (let attempt = 0; attempt < OPTIONAL_VENTA_COLUMNS.length; attempt++) {
         const res = await supabase.from('ventas').insert(ventaPayload as any).select().single();
         venta = res.data;
         ventaErr = res.error;
         const missingCol = getMissingVentasColumn(ventaErr);
         if (!missingCol) break;
         console.warn(`ventas.${missingCol} no disponible en schema cache; reintentando sin esa columna`);
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
         const { [missingCol]: _removed, ...remaining } = ventaPayload;
         ventaPayload = remaining;
       }
