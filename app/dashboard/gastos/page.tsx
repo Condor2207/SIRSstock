@@ -142,11 +142,11 @@ export default function GastosPage() {
 
   async function handleSave() {
     if (!form.categoria || !form.monto) { toast.error('Categoría y monto son obligatorios'); return; }
-    if (!form.proveedor_id) { toast.error('El proveedor es obligatorio'); return; }
+    if (!form.proveedor_id) { toast.error('Por favor seleccione un proveedor'); return; }
     const monto = parseFloat(form.monto);
     if (isNaN(monto) || monto <= 0) { toast.error('El monto debe ser mayor a 0'); return; }
     if (schemaCompatMode && form.condicion === 'credito') {
-      toast.error('Para registrar gastos a crédito primero ejecute las migraciones SQL pendientes.');
+      toast.error('No se pueden registrar gastos a crédito porque faltan columnas en la base de datos. Por favor ejecute las migraciones 009, 010 y 011.');
       return;
     }
 
