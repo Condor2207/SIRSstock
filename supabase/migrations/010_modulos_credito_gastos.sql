@@ -12,20 +12,6 @@ ALTER TABLE gastos
   ADD COLUMN IF NOT EXISTS saldo_pendiente NUMERIC(12,2) NOT NULL DEFAULT 0,
   ADD COLUMN IF NOT EXISTS estado TEXT NOT NULL DEFAULT 'pagado' CHECK (estado IN ('pendiente', 'pagado', 'parcial', 'anulado'));
 
-UPDATE gastos
-SET saldo_pendiente = CASE
-  WHEN COALESCE(condicion, 'debito') = 'credito' THEN monto
-  ELSE 0
-END
-WHERE saldo_pendiente = 0;
-
-UPDATE gastos
-SET estado = CASE
-  WHEN COALESCE(condicion, 'debito') = 'credito' THEN 'pendiente'
-  ELSE 'pagado'
-END
-WHERE estado = 'pagado';
-
 CREATE INDEX IF NOT EXISTS gastos_estado_condicion_idx ON gastos(estado, condicion);
 CREATE INDEX IF NOT EXISTS gastos_proveedor_saldo_idx ON gastos(proveedor_id, saldo_pendiente);
 

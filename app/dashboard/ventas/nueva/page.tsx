@@ -145,7 +145,7 @@ export default function NuevaVentaPage() {
         item.fecha_vencimiento = lote?.fecha_vencimiento;
       }
       if (campo === 'cantidad') {
-        item.cantidad = Math.max(1, Math.round(parseFloat(String(item.cantidad)) || 0));
+        item.cantidad = Math.max(1, Math.round(parseFloat(String(item.cantidad)) || 1));
         item.subtotal = item.cantidad * (parseFloat(String(item.precio_unitario)) || 0);
       }
       updated[idx] = item;

@@ -177,7 +177,7 @@ export default function CobrosPage() {
           const { data: vent } = await supabase.from('ventas').select('saldo_pendiente, total').eq('id', f.venta_id).single();
           if (vent) {
             const nuevoSaldo = Math.max(0, vent.saldo_pendiente - f.monto_aplicado);
-            const nuevoEstado = nuevoSaldo === 0 ? 'pagado' : nuevoSaldo < vent.total ? 'parcial' : 'pendiente';
+            const nuevoEstado = nuevoSaldo === 0 ? 'pagado' : 'parcial';
             await supabase.from('ventas').update({ saldo_pendiente: nuevoSaldo, estado: nuevoEstado }).eq('id', f.venta_id);
           }
         }
@@ -190,7 +190,7 @@ export default function CobrosPage() {
           const { data: gasto } = await supabase.from('gastos').select('saldo_pendiente, monto').eq('id', g.gasto_id).single();
           if (gasto) {
             const nuevoSaldo = Math.max(0, (gasto.saldo_pendiente || 0) - g.monto_aplicado);
-            const nuevoEstado = nuevoSaldo === 0 ? 'pagado' : nuevoSaldo < gasto.monto ? 'parcial' : 'pendiente';
+            const nuevoEstado = nuevoSaldo === 0 ? 'pagado' : 'parcial';
             await supabase.from('gastos').update({ saldo_pendiente: nuevoSaldo, estado: nuevoEstado }).eq('id', g.gasto_id);
           }
         }

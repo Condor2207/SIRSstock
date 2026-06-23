@@ -101,7 +101,9 @@ export default function GastosPage() {
   function agregarCategoria() {
     const nombre = nuevaCategoria.trim();
     if (!nombre) return;
-    if (!categorias.includes(nombre)) {
+    if (categorias.includes(nombre)) {
+      toast('La categoría ya existe, se seleccionó automáticamente', { icon: 'ℹ️' });
+    } else {
       setCategorias(prev => [...prev, nombre].sort((a, b) => a.localeCompare(b, 'es')));
     }
     setForm(f => ({ ...f, categoria: nombre }));
