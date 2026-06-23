@@ -14,7 +14,7 @@ export default function VendedoresPage() {
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando] = useState<Vendedor | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ nombre: '', telefono: '', email: '', activo: true });
+  const [form, setForm] = useState({ nombre: '', telefono: '', email: '', porcentaje_venta: '0', activo: true });
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -25,8 +25,8 @@ export default function VendedoresPage() {
 
   useEffect(() => { load(); }, [load]);
 
-  function openNew() { setEditando(null); setForm({ nombre: '', telefono: '', email: '', activo: true }); setShowModal(true); }
-  function openEdit(v: Vendedor) { setEditando(v); setForm({ nombre: v.nombre, telefono: v.telefono || '', email: v.email || '', activo: v.activo }); setShowModal(true); }
+  function openNew() { setEditando(null); setForm({ nombre: '', telefono: '', email: '', porcentaje_venta: '0', activo: true }); setShowModal(true); }
+  function openEdit(v: Vendedor) { setEditando(v); setForm({ nombre: v.nombre, telefono: v.telefono || '', email: v.email || '', porcentaje_venta: String(v.porcentaje_venta ?? 0), activo: v.activo }); setShowModal(true); }
 
   async function handleSave() {
     const nombre = form.nombre.trim();
@@ -37,7 +37,13 @@ export default function VendedoresPage() {
     if (!telefono && !email) { toast.error('Debés cargar teléfono o email'); return; }
 
     setSaving(true);
-    const payload = { nombre, telefono: telefono || null, email: email || null, activo: form.activo };
+    const payload = {
+      nombre,
+      telefono: telefono || null,
+      email: email || null,
+      porcentaje_venta: Math.min(100, Math.max(0, parseFloat(form.porcentaje_venta) || 0)),
+      activo: form.activo
+    };
     const { error } = editando
       ? await supabase.from('vendedores').update(payload).eq('id', editando.id)
       : await supabase.from('vendedores').insert(payload);
@@ -59,13 +65,14 @@ export default function VendedoresPage() {
         <div className="card overflow-x-auto">
           {loading ? <div className="flex justify-center p-8"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div> : (
             <table className="w-full text-sm">
-              <thead><tr><th className="table-header">Nombre</th><th className="table-header">Teléfono</th><th className="table-header">Email</th><th className="table-header">Estado</th><th className="table-header text-right">Acciones</th></tr></thead>
+              <thead><tr><th className="table-header">Nombre</th><th className="table-header">Teléfono</th><th className="table-header">Email</th><th className="table-header">% Venta</th><th className="table-header">Estado</th><th className="table-header text-right">Acciones</th></tr></thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {items.map(v => (
                   <tr key={v.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                     <td className="table-cell font-medium">{v.nombre}</td>
                     <td className="table-cell text-gray-500">{v.telefono || '—'}</td>
                     <td className="table-cell text-gray-500">{v.email || '—'}</td>
+                    <td className="table-cell"><span className="font-semibold text-cyan-600">{v.porcentaje_venta ?? 0}%</span></td>
                     <td className="table-cell">
                       {v.activo ? <span className="badge bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">Activo</span> : <span className="badge bg-gray-100 text-gray-500">Inactivo</span>}
                     </td>
@@ -89,6 +96,7 @@ export default function VendedoresPage() {
               <div><label className="label">Nombre completo *</label><input className="input" value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))} /></div>
               <div><label className="label">Teléfono * (o Email)</label><input className="input" value={form.telefono} onChange={e => setForm(p => ({ ...p, telefono: e.target.value }))} /></div>
               <div><label className="label">Email * (o Teléfono)</label><input className="input" type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
+              <div><label className="label">Porcentaje de venta (%)</label><input className="input" type="number" min="0" max="100" step="0.01" value={form.porcentaje_venta} onChange={e => setForm(p => ({ ...p, porcentaje_venta: e.target.value }))} /></div>
               <div className="flex items-center gap-2">
                 <input type="checkbox" id="activo_v" checked={form.activo} onChange={e => setForm(p => ({ ...p, activo: e.target.checked }))} />
                 <label htmlFor="activo_v" className="text-sm text-gray-700 dark:text-gray-300">Activo</label>

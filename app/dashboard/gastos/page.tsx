@@ -3,14 +3,15 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
-import { formatCurrency, formatDate } from '@/lib/utils';
-import { Plus, Search, Receipt, X, Loader2 } from 'lucide-react';
+import { formatCurrency, formatDate, estadoBadgeClass } from '@/lib/utils';
+import { Plus, Search, Receipt, X, Loader2, Edit2 } from 'lucide-react';
 import toast from 'react-hot-toast';
-import type { Gasto, Proveedor } from '@/lib/types';
+import type { Gasto, Proveedor, TasaIva } from '@/lib/types';
 import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
 
-const CATEGORIAS = ['Servicios', 'Combustible', 'Reparaciones', 'Insumos de oficina', 'Alquiler', 'Transporte', 'Marketing', 'Personal', 'Impuestos', 'Otros'];
+const CATEGORIAS_BASE = ['Servicios', 'Combustible', 'Reparaciones', 'Insumos de oficina', 'Alquiler', 'Transporte', 'Marketing', 'Personal', 'Impuestos', 'Otros'];
 const MEDIOS_PAGO = ['efectivo', 'transferencia', 'cheque', 'tarjeta', 'otro'];
+const CREAR_CATEGORIA = '__INTERNAL_CREATE_CATEGORY__';
 
 interface Banco { id: string; nombre: string; }
 
@@ -21,53 +22,141 @@ export default function GastosPage() {
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [editando, setEditando] = useState<Gasto | null>(null);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [bancos, setBancos] = useState<Banco[]>([]);
+  const [tasasIva, setTasasIva] = useState<TasaIva[]>([]);
+  const [categorias, setCategorias] = useState<string[]>(CATEGORIAS_BASE);
+  const [creandoCategoria, setCreandoCategoria] = useState(false);
+  const [nuevaCategoria, setNuevaCategoria] = useState('');
   const [form, setForm] = useState({
-    titulo: '', descripcion: '', proveedor_id: '', monto: '',
+    descripcion: '', proveedor_id: '', monto: '',
     fecha: new Date().toISOString().split('T')[0],
     medio_pago: 'efectivo', categoria: '', referencia: '',
     condicion: 'debito' as 'debito' | 'credito', fecha_vencimiento: '',
     numero_transaccion: '', banco_id: '', numero_cheque: '', fecha_cheque: '',
+    tasa_iva_id: '',
   });
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase.from('gastos').select('*, proveedores(nombre)').order('fecha', { ascending: false }).limit(100);
-    setGastos(data as Gasto[] || []);
+    const { data } = await supabase
+      .from('gastos')
+      .select('*, proveedores(nombre), tasa_iva_ref:tasas_iva(nombre, porcentaje)')
+      .order('fecha', { ascending: false })
+      .limit(100);
+    const rows = (data as Gasto[] || []);
+    setGastos(rows);
+    const categoriasDb = rows.map(g => (g.categoria || g.titulo || '').trim()).filter(Boolean);
+    const unicas = Array.from(new Set([...CATEGORIAS_BASE, ...categoriasDb])).sort((a, b) => a.localeCompare(b, 'es'));
+    setCategorias(unicas);
     setLoading(false);
-  }, []);
+  }, [supabase]);
 
   useEffect(() => {
     load();
     supabase.from('proveedores').select('id, nombre').eq('activo', true).order('nombre').then(r => setProveedores(r.data as Proveedor[] || []));
     supabase.from('bancos').select('id, nombre').eq('activo', true).order('nombre').then(r => setBancos(r.data as Banco[] || []));
-  }, [load]);
+    supabase.from('tasas_iva').select('id, nombre, porcentaje').eq('activo', true).order('porcentaje').then(r => setTasasIva(r.data as TasaIva[] || []));
+  }, [load, supabase]);
 
   function resetForm() {
-    setForm({ titulo: '', descripcion: '', proveedor_id: '', monto: '', fecha: new Date().toISOString().split('T')[0], medio_pago: 'efectivo', categoria: '', referencia: '', condicion: 'debito', fecha_vencimiento: '', numero_transaccion: '', banco_id: '', numero_cheque: '', fecha_cheque: '' });
+    setEditando(null);
+    setCreandoCategoria(false);
+    setNuevaCategoria('');
+    setForm({
+      descripcion: '', proveedor_id: '', monto: '',
+      fecha: new Date().toISOString().split('T')[0],
+      medio_pago: 'efectivo', categoria: '', referencia: '',
+      condicion: 'debito', fecha_vencimiento: '',
+      numero_transaccion: '', banco_id: '', numero_cheque: '', fecha_cheque: '',
+      tasa_iva_id: '',
+    });
+  }
+
+  function openEdit(g: Gasto) {
+    setEditando(g);
+    const categoria = g.categoria || g.titulo || '';
+    setCreandoCategoria(false);
+    setNuevaCategoria('');
+    setForm({
+      descripcion: g.descripcion || '',
+      proveedor_id: g.proveedor_id || '',
+      monto: String(g.monto || ''),
+      fecha: g.fecha || new Date().toISOString().split('T')[0],
+      medio_pago: g.medio_pago || 'efectivo',
+      categoria,
+      referencia: g.referencia || '',
+      condicion: (g.condicion as 'debito' | 'credito') || 'debito',
+      fecha_vencimiento: g.fecha_vencimiento || '',
+      numero_transaccion: (g as any).numero_transaccion || '',
+      banco_id: (g as any).banco_id || '',
+      numero_cheque: (g as any).numero_cheque || '',
+      fecha_cheque: (g as any).fecha_cheque || '',
+      tasa_iva_id: g.tasa_iva_id || '',
+    });
+    setShowModal(true);
+  }
+
+  function agregarCategoria() {
+    const nombre = nuevaCategoria.trim();
+    if (!nombre) return;
+    if (categorias.includes(nombre)) {
+      toast('La categoría ya existe, se seleccionó automáticamente');
+    } else {
+      setCategorias(prev => [...prev, nombre].sort((a, b) => a.localeCompare(b, 'es')));
+    }
+    setForm(f => ({ ...f, categoria: nombre }));
+    setCreandoCategoria(false);
+    setNuevaCategoria('');
   }
 
   async function handleSave() {
-    if (!form.titulo || !form.monto) { toast.error('Título y monto son obligatorios'); return; }
+    if (!form.categoria || !form.monto) { toast.error('Categoría y monto son obligatorios'); return; }
+    if (form.condicion === 'credito' && !form.proveedor_id) { toast.error('En gastos a crédito el proveedor es obligatorio'); return; }
     const monto = parseFloat(form.monto);
     if (isNaN(monto) || monto <= 0) { toast.error('El monto debe ser mayor a 0'); return; }
+
+    let saldoPendiente = 0;
+    let estado: 'pendiente' | 'pagado' | 'parcial' = 'pagado';
+    if (form.condicion === 'credito') {
+      if (editando) {
+        const saldoAnterior = editando.saldo_pendiente ?? editando.monto;
+        const pagado = Math.max(0, (editando.monto || 0) - saldoAnterior);
+        if (monto < pagado) { toast.error(`El monto (${formatCurrency(monto)}) no puede ser menor al importe ya pagado (${formatCurrency(pagado)})`); return; }
+        saldoPendiente = Math.max(0, monto - pagado);
+      } else {
+        saldoPendiente = monto;
+      }
+      estado = saldoPendiente === 0 ? 'pagado' : saldoPendiente < monto ? 'parcial' : 'pendiente';
+    }
+
     setSaving(true);
     try {
-      const { error } = await supabase.from('gastos').insert({
-        titulo: form.titulo, descripcion: form.descripcion || null,
-        proveedor_id: form.proveedor_id || null, monto,
-        fecha: form.fecha, medio_pago: form.medio_pago,
-        categoria: form.categoria || null, referencia: form.referencia || null,
+      const payload = {
+        titulo: form.categoria,
+        descripcion: form.descripcion || null,
+        proveedor_id: form.proveedor_id || null,
+        monto,
+        fecha: form.fecha,
+        medio_pago: form.medio_pago,
+        categoria: form.categoria,
+        referencia: form.referencia || null,
         condicion: form.condicion,
         fecha_vencimiento: form.condicion === 'credito' ? (form.fecha_vencimiento || null) : null,
         numero_transaccion: form.medio_pago === 'transferencia' ? (form.numero_transaccion || null) : null,
         banco_id: form.medio_pago === 'cheque' ? (form.banco_id || null) : null,
         numero_cheque: form.medio_pago === 'cheque' ? (form.numero_cheque || null) : null,
         fecha_cheque: form.medio_pago === 'cheque' ? (form.fecha_cheque || null) : null,
-      });
+        tasa_iva_id: form.tasa_iva_id || null,
+        saldo_pendiente: saldoPendiente,
+        estado,
+      };
+      const { error } = editando
+        ? await supabase.from('gastos').update(payload).eq('id', editando.id)
+        : await supabase.from('gastos').insert(payload);
       if (error) throw error;
-      toast.success('Gasto registrado');
+      toast.success(editando ? 'Gasto actualizado' : 'Gasto registrado');
       setShowModal(false);
       resetForm();
       load();
@@ -79,8 +168,7 @@ export default function GastosPage() {
   }
 
   const filteredRaw = gastos.filter(g =>
-    g.titulo.toLowerCase().includes(search.toLowerCase()) ||
-    (g.categoria || '').toLowerCase().includes(search.toLowerCase())
+    (g.categoria || g.titulo || '').toLowerCase().includes(search.toLowerCase())
   ).map(g => ({ ...g, proveedor_nombre: (g as any).proveedores?.nombre || '' }));
   const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filteredRaw as any[]);
   const { paginated: filtered, page, setPage, pageSize, setPageSize, totalPages, total } = usePagination(filteredSorted);
@@ -95,7 +183,7 @@ export default function GastosPage() {
           <div className="flex gap-2 flex-1">
             <div className="relative flex-1 max-w-sm">
               <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
-              <input className="input pl-9" placeholder="Buscar por título o categoría..." value={search} onChange={e => setSearch(e.target.value)} />
+              <input className="input pl-9" placeholder="Buscar por categoría..." value={search} onChange={e => setSearch(e.target.value)} />
             </div>
           </div>
           <div className="flex items-center gap-3">
@@ -124,11 +212,13 @@ export default function GastosPage() {
                 <thead className="bg-gray-50 dark:bg-gray-800/50">
                   <tr>
                     <SortableTh label="Fecha" sortKey="fecha" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                    <SortableTh label="Título" sortKey="titulo" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Categoría" sortKey="categoria" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Proveedor" sortKey="proveedor_nombre" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                    <SortableTh label="Medio pago" sortKey="medio_pago" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="IVA" sortKey="tasa_iva_id" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Condición" sortKey="condicion" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <SortableTh label="Estado" sortKey="estado" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Monto" sortKey="monto" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <th className="table-header text-right">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
@@ -136,24 +226,29 @@ export default function GastosPage() {
                     <tr key={g.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                       <td className="table-cell text-xs">{formatDate(g.fecha)}</td>
                       <td className="table-cell font-medium">
-                        <div>{g.titulo}</div>
+                        <div>{g.categoria || g.titulo}</div>
                         {g.descripcion && <div className="text-xs text-gray-400">{g.descripcion}</div>}
                       </td>
-                      <td className="table-cell">
-                        {g.categoria ? (
-                          <span className="badge bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-300">{g.categoria}</span>
-                        ) : '-'}
-                      </td>
                       <td className="table-cell text-sm">{(g as any).proveedores?.nombre || '-'}</td>
-                      <td className="table-cell capitalize">{g.medio_pago}</td>
+                      <td className="table-cell text-sm">{(g as any).tasa_iva_ref ? `${(g as any).tasa_iva_ref.nombre} (${(g as any).tasa_iva_ref.porcentaje}%)` : '-'}</td>
+                      <td className="table-cell capitalize">{g.condicion || 'debito'}</td>
+                      <td className="table-cell">
+                        <span className={`badge ${estadoBadgeClass(g.estado || 'pagado')}`}>{g.estado || 'pagado'}</span>
+                      </td>
                       <td className="table-cell font-bold text-red-500">{formatCurrency(g.monto)}</td>
+                      <td className="table-cell text-right">
+                        <button onClick={() => openEdit(g)} className="p-1 text-blue-500 hover:text-blue-700" title="Editar gasto">
+                          <Edit2 className="w-4 h-4" />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
                 <tfoot>
                   <tr className="bg-gray-50 dark:bg-gray-800/50">
-                    <td colSpan={5} className="px-4 py-3 text-right text-sm font-semibold text-gray-600 dark:text-gray-400">Total:</td>
+                    <td colSpan={6} className="px-4 py-3 text-right text-sm font-semibold text-gray-600 dark:text-gray-400">Total:</td>
                     <td className="px-4 py-3 font-bold text-red-500 text-base">{formatCurrency(totalFiltrado)}</td>
+                    <td></td>
                   </tr>
                 </tfoot>
               </table>
@@ -167,13 +262,35 @@ export default function GastosPage() {
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
           <div className="card w-full max-w-lg max-h-[90vh] overflow-y-auto">
             <div className="flex items-center justify-between p-5 border-b border-gray-100 dark:border-gray-700">
-              <h2 className="section-title">Nuevo Gasto</h2>
+              <h2 className="section-title">{editando ? 'Editar Gasto' : 'Nuevo Gasto'}</h2>
               <button onClick={() => setShowModal(false)}><X className="w-4 h-4" /></button>
             </div>
             <div className="p-5 space-y-4">
               <div>
-                <label className="label">Título *</label>
-                <input className="input" value={form.titulo} onChange={e => setForm(f => ({ ...f, titulo: e.target.value }))} placeholder="Ej: Pago servicio eléctrico" />
+                <label className="label">Categoría *</label>
+                {!creandoCategoria ? (
+                  <select
+                    className="input"
+                    value={form.categoria}
+                    onChange={e => {
+                      if (e.target.value === CREAR_CATEGORIA) {
+                        setCreandoCategoria(true);
+                        return;
+                      }
+                      setForm(f => ({ ...f, categoria: e.target.value }));
+                    }}
+                  >
+                    <option value="">Seleccionar categoría</option>
+                    <option value={CREAR_CATEGORIA}>+ Crear categoría</option>
+                    {categorias.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                ) : (
+                  <div className="flex gap-2">
+                    <input className="input" value={nuevaCategoria} onChange={e => setNuevaCategoria(e.target.value)} placeholder="Nueva categoría" />
+                    <button onClick={agregarCategoria} className="btn-secondary shrink-0">Agregar</button>
+                    <button onClick={() => { setCreandoCategoria(false); setNuevaCategoria(''); }} className="btn-secondary shrink-0">Cancelar</button>
+                  </div>
+                )}
               </div>
               <div>
                 <label className="label">Descripción</label>
@@ -191,17 +308,17 @@ export default function GastosPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="label">Categoría</label>
-                  <select className="input" value={form.categoria} onChange={e => setForm(f => ({ ...f, categoria: e.target.value }))}>
-                    <option value="">Sin categoría</option>
-                    {CATEGORIAS.map(c => <option key={c}>{c}</option>)}
-                  </select>
-                </div>
-                <div>
                   <label className="label">Condición</label>
                   <select className="input" value={form.condicion} onChange={e => setForm(f => ({ ...f, condicion: e.target.value as 'debito' | 'credito' }))}>
                     <option value="debito">Débito (pagado)</option>
                     <option value="credito">Crédito (a pagar)</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label">IVA</label>
+                  <select className="input" value={form.tasa_iva_id} onChange={e => setForm(f => ({ ...f, tasa_iva_id: e.target.value }))}>
+                    <option value="">Sin IVA</option>
+                    {tasasIva.map(t => <option key={t.id} value={t.id}>{t.nombre} ({t.porcentaje}%)</option>)}
                   </select>
                 </div>
                 <div>
@@ -210,7 +327,6 @@ export default function GastosPage() {
                     {MEDIOS_PAGO.map(m => <option key={m} className="capitalize">{m}</option>)}
                   </select>
                 </div>
-                {/* Campos dinámicos según medio de pago */}
                 {form.medio_pago === 'transferencia' && (
                   <div>
                     <label className="label">N° Transacción</label>
@@ -244,9 +360,9 @@ export default function GastosPage() {
                 )}
               </div>
               <div>
-                <label className="label">Proveedor (opcional)</label>
+                <label className="label">Proveedor {form.condicion === 'credito' ? '*' : '(opcional)'}</label>
                 <select className="input" value={form.proveedor_id} onChange={e => setForm(f => ({ ...f, proveedor_id: e.target.value }))}>
-                  <option value="">Sin proveedor</option>
+                  <option value="">{form.condicion === 'credito' ? 'Seleccionar proveedor' : 'Sin proveedor'}</option>
                   {proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
                 </select>
               </div>
@@ -259,7 +375,7 @@ export default function GastosPage() {
               <button onClick={() => setShowModal(false)} className="btn-secondary">Cancelar</button>
               <button onClick={handleSave} disabled={saving} className="btn-primary flex items-center gap-2">
                 {saving && <Loader2 className="w-4 h-4 animate-spin" />}
-                Registrar gasto
+                {editando ? 'Guardar cambios' : 'Registrar gasto'}
               </button>
             </div>
           </div>
