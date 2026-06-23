@@ -4,7 +4,11 @@
 
 -- Vendedores: porcentaje de venta
 ALTER TABLE vendedores
-  ADD COLUMN IF NOT EXISTS porcentaje_venta NUMERIC(5,2) NOT NULL DEFAULT 0;
+  ADD COLUMN IF NOT EXISTS porcentaje_venta NUMERIC(5,2);
+
+UPDATE vendedores SET porcentaje_venta = 0 WHERE porcentaje_venta IS NULL;
+ALTER TABLE vendedores ALTER COLUMN porcentaje_venta SET DEFAULT 0;
+ALTER TABLE vendedores ALTER COLUMN porcentaje_venta SET NOT NULL;
 
 DO $$
 BEGIN
@@ -28,8 +32,19 @@ CREATE INDEX IF NOT EXISTS gastos_proveedor_saldo_idx ON gastos(proveedor_id, sa
 
 -- Cobros: permitir cobro relacionado a gastos/proveedores
 ALTER TABLE cobros
-  ADD COLUMN IF NOT EXISTS tipo_referencia TEXT DEFAULT 'clientes' CHECK (tipo_referencia IN ('clientes', 'gastos')),
+  ADD COLUMN IF NOT EXISTS tipo_referencia TEXT DEFAULT 'clientes',
   ADD COLUMN IF NOT EXISTS proveedor_id UUID REFERENCES proveedores(id);
+
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'cobros_tipo_referencia_chk'
+  ) THEN
+    ALTER TABLE cobros
+      ADD CONSTRAINT cobros_tipo_referencia_chk
+      CHECK (tipo_referencia IN ('clientes', 'gastos'));
+  END IF;
+END $$;
 
 CREATE TABLE IF NOT EXISTS cobro_gastos (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),

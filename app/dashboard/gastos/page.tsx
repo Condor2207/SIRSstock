@@ -114,7 +114,7 @@ export default function GastosPage() {
   async function handleSave() {
     if (!form.categoria || !form.monto) { toast.error('Categoría y monto son obligatorios'); return; }
     if (form.condicion === 'credito' && !form.proveedor_id) { toast.error('En gastos a crédito el proveedor es obligatorio'); return; }
-    const monto = parseInt(form.monto, 10);
+    const monto = parseFloat(form.monto);
     if (isNaN(monto) || monto <= 0) { toast.error('El monto debe ser mayor a 0'); return; }
 
     let saldoPendiente = 0;
@@ -299,7 +299,7 @@ export default function GastosPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">Monto ($) *</label>
-                  <input type="number" min="1" step="1" className="input" value={form.monto} onChange={e => setForm(f => ({ ...f, monto: e.target.value }))} />
+                  <input type="number" min="0.01" step="0.01" className="input" value={form.monto} onChange={e => setForm(f => ({ ...f, monto: e.target.value }))} />
                 </div>
                 <div>
                   <label className="label">Fecha</label>

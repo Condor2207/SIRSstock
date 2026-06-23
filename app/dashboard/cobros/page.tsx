@@ -14,7 +14,7 @@ interface CobroFacturaRow { venta_id: string; numero: string; total: number; sal
 interface CobroGastoRow { gasto_id: string; categoria: string; monto: number; saldo_pendiente: number; fecha: string; monto_aplicado: number; }
 interface CobroRetencionRow { numero_retencion: string; concepto: string; monto: number; }
 interface CobroMedioRow { tipo: string; monto: number; banco_id: string; numero_cheque: string; fecha_cheque: string; numero_transaccion: string; }
-// Diferencia máxima aceptada para conciliación entre documentos y medios de pago.
+// Diferencia máxima aceptada en unidades monetarias para conciliación entre documentos y medios de pago.
 const RECON_TOLERANCE = 1;
 
 export default function CobrosPage() {
@@ -141,7 +141,7 @@ export default function CobrosPage() {
     if (formHeader.tipo_referencia === 'gastos' && gastosSelec.length === 0) { toast.error('Agregá al menos un gasto'); return; }
     if (medios.every(m => m.monto <= 0)) { toast.error('Registrá al menos un medio de pago'); return; }
     if (Math.abs(diferencia) > RECON_TOLERANCE) {
-      const tipo = diferencia > RECON_TOLERANCE ? 'falta' : 'excedente';
+      const tipo = diferencia > 0 ? 'falta' : 'excedente';
       toast.error(`Diferencia sin cubrir (${tipo}): ${formatCurrency(Math.abs(diferencia))}`);
       return;
     }
