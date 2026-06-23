@@ -105,6 +105,7 @@ export default function ComprasPage() {
 
   async function handleSave() {
     if (items.length === 0) { toast.error('Agregá al menos un producto a la compra'); return; }
+    if (form.condicion_pago === 'credito' && !form.proveedor_id) { toast.error('En compras a crédito el proveedor es obligatorio'); return; }
     if (items.some(i => !i.producto_id)) { toast.error('Todos los líneas deben tener un producto seleccionado'); return; }
     if (items.some(i => i.cantidad <= 0)) { toast.error('La cantidad debe ser mayor a 0 en todos los productos'); return; }
     if (items.some(i => i.precio_unitario <= 0)) { toast.error('El precio unitario debe ser mayor a 0'); return; }
@@ -465,4 +466,3 @@ export default function ComprasPage() {
     </>
   );
 }
-    if (form.condicion_pago === 'credito' && !form.proveedor_id) { toast.error('En compras a crédito el proveedor es obligatorio'); return; }
