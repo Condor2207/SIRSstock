@@ -44,18 +44,22 @@ export default function GastosPage() {
     setLoading(true);
     const advancedSelect = 'id, titulo, descripcion, proveedor_id, monto, fecha, medio_pago, categoria, referencia, created_by, created_at, condicion, fecha_vencimiento, numero_transaccion, banco_id, numero_cheque, fecha_cheque, tasa_iva_id, saldo_pendiente, estado, proveedores(nombre), tasa_iva_ref:tasas_iva(nombre, porcentaje)';
     const baseSelect = 'id, titulo, descripcion, proveedor_id, monto, fecha, medio_pago, categoria, referencia, created_by, created_at, proveedores(nombre)';
-    let { data, error } = await supabase
+    const advancedRes = await supabase
       .from('gastos')
       .select(advancedSelect)
       .order('fecha', { ascending: false })
       .limit(100);
+    let data: any[] | null = advancedRes.data;
+    let error: any = advancedRes.error;
     if (error && isSchemaCacheMissing(error, ['gastos', 'estado', 'saldo_pendiente', 'condicion', 'tasas_iva'])) {
       setSchemaCompatMode(true);
-      ({ data, error } = await supabase
+      const baseRes = await supabase
         .from('gastos')
         .select(baseSelect)
         .order('fecha', { ascending: false })
-        .limit(100));
+        .limit(100);
+      data = baseRes.data;
+      error = baseRes.error;
       if (!compatToastShown.current) {
         toast.error('Tu base no tiene aún todas las columnas de gastos. Se activó un modo compatible.');
         compatToastShown.current = true;
