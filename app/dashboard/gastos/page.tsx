@@ -102,7 +102,7 @@ export default function GastosPage() {
     const nombre = nuevaCategoria.trim();
     if (!nombre) return;
     if (categorias.includes(nombre)) {
-      toast('La categoría ya existe, se seleccionó automáticamente', { icon: 'ℹ️' });
+      toast('La categoría ya existe, se seleccionó automáticamente');
     } else {
       setCategorias(prev => [...prev, nombre].sort((a, b) => a.localeCompare(b, 'es')));
     }
@@ -123,6 +123,7 @@ export default function GastosPage() {
       if (editando) {
         const saldoAnterior = editando.saldo_pendiente ?? editando.monto;
         const pagado = Math.max(0, (editando.monto || 0) - saldoAnterior);
+        if (monto < pagado) { toast.error('El monto no puede ser menor al importe ya pagado'); return; }
         saldoPendiente = Math.max(0, monto - pagado);
       } else {
         saldoPendiente = monto;

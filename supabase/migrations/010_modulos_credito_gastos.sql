@@ -9,15 +9,15 @@ ALTER TABLE vendedores
 -- Gastos: IVA y control de saldo/estado para crédito
 ALTER TABLE gastos
   ADD COLUMN IF NOT EXISTS tasa_iva_id UUID REFERENCES tasas_iva(id),
-  ADD COLUMN IF NOT EXISTS saldo_pendiente NUMERIC(12,2) NOT NULL DEFAULT 0,
-  ADD COLUMN IF NOT EXISTS estado TEXT NOT NULL DEFAULT 'pagado' CHECK (estado IN ('pendiente', 'pagado', 'parcial', 'anulado'));
+  ADD COLUMN IF NOT EXISTS saldo_pendiente NUMERIC(12,2) DEFAULT 0,
+  ADD COLUMN IF NOT EXISTS estado TEXT DEFAULT 'pagado' CHECK (estado IN ('pendiente', 'pagado', 'parcial', 'anulado'));
 
 CREATE INDEX IF NOT EXISTS gastos_estado_condicion_idx ON gastos(estado, condicion);
 CREATE INDEX IF NOT EXISTS gastos_proveedor_saldo_idx ON gastos(proveedor_id, saldo_pendiente);
 
 -- Cobros: permitir cobro relacionado a gastos/proveedores
 ALTER TABLE cobros
-  ADD COLUMN IF NOT EXISTS tipo_referencia TEXT NOT NULL DEFAULT 'clientes' CHECK (tipo_referencia IN ('clientes', 'gastos')),
+  ADD COLUMN IF NOT EXISTS tipo_referencia TEXT DEFAULT 'clientes' CHECK (tipo_referencia IN ('clientes', 'gastos')),
   ADD COLUMN IF NOT EXISTS proveedor_id UUID REFERENCES proveedores(id);
 
 CREATE TABLE IF NOT EXISTS cobro_gastos (

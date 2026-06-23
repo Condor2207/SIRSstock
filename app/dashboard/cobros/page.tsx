@@ -14,6 +14,7 @@ interface CobroFacturaRow { venta_id: string; numero: string; total: number; sal
 interface CobroGastoRow { gasto_id: string; categoria: string; monto: number; saldo_pendiente: number; fecha: string; monto_aplicado: number; }
 interface CobroRetencionRow { numero_retencion: string; concepto: string; monto: number; }
 interface CobroMedioRow { tipo: string; monto: number; banco_id: string; numero_cheque: string; fecha_cheque: string; numero_transaccion: string; }
+const RECON_TOLERANCE = 1;
 
 export default function CobrosPage() {
   const supabase = createClient();
@@ -138,7 +139,7 @@ export default function CobrosPage() {
     if (formHeader.tipo_referencia === 'clientes' && facturasSelec.length === 0) { toast.error('Agregá al menos una factura'); return; }
     if (formHeader.tipo_referencia === 'gastos' && gastosSelec.length === 0) { toast.error('Agregá al menos un gasto'); return; }
     if (medios.every(m => m.monto <= 0)) { toast.error('Registrá al menos un medio de pago'); return; }
-    if (Math.abs(diferencia) > 1) { toast.error(`Diferencia sin cubrir: ${formatCurrency(Math.abs(diferencia))}`); return; }
+    if (Math.abs(diferencia) > RECON_TOLERANCE) { toast.error(`Diferencia sin cubrir: ${formatCurrency(Math.abs(diferencia))}`); return; }
     setSaving(true);
     try {
       const { count } = await supabase.from('cobros').select('*', { count: 'exact', head: true });
@@ -506,8 +507,8 @@ export default function CobrosPage() {
                 <div className="flex justify-between"><span className="text-gray-500">Total documentos:</span><span className="font-semibold">{formatCurrency(totalDocumentos)}</span></div>
                 {totalRetenciones > 0 && <div className="flex justify-between"><span className="text-gray-500">Retenciones:</span><span className="text-red-500 font-semibold">- {formatCurrency(totalRetenciones)}</span></div>}
                 <div className="flex justify-between"><span className="text-gray-500">Total cobrado:</span><span className="text-emerald-600 font-semibold">{formatCurrency(totalCobrado)}</span></div>
-                <div className={`flex justify-between font-bold text-base border-t border-gray-200 dark:border-gray-700 pt-1 ${Math.abs(diferencia) > 1 ? 'text-red-500' : 'text-emerald-600'}`}>
-                  <span>Diferencia:</span><span>{formatCurrency(Math.abs(diferencia))} {diferencia > 1 ? '(falta)' : diferencia < -1 ? '(excedente)' : '✓'}</span>
+                <div className={`flex justify-between font-bold text-base border-t border-gray-200 dark:border-gray-700 pt-1 ${Math.abs(diferencia) > RECON_TOLERANCE ? 'text-red-500' : 'text-emerald-600'}`}>
+                  <span>Diferencia:</span><span>{formatCurrency(Math.abs(diferencia))} {diferencia > RECON_TOLERANCE ? '(falta)' : diferencia < -RECON_TOLERANCE ? '(excedente)' : '✓'}</span>
                 </div>
               </div>
             </div>
