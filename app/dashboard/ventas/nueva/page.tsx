@@ -619,19 +619,19 @@ export default function NuevaVentaPage() {
                         <div>
                           <label className="label text-xs">Cantidad</label>
                           <input
-                            type="number" min="0.001" step="0.001"
+                            type="number" min="1" step="1"
                             className="input py-1.5"
                             value={item.cantidad}
-                            onChange={e => actualizarItem(idx, 'cantidad', parseFloat(e.target.value) || 0)}
+                            onChange={e => actualizarItem(idx, 'cantidad', parseInt(e.target.value) || 0)}
                           />
                         </div>
                         <div>
                           <label className="label text-xs">Precio unitario</label>
                           <input
-                            type="number" min="0" step="0.01"
-                            className="input py-1.5"
+                            type="number"
+                            className="input py-1.5 bg-gray-100 dark:bg-gray-700 cursor-not-allowed"
                             value={item.precio_unitario}
-                            onChange={e => actualizarItem(idx, 'precio_unitario', parseFloat(e.target.value) || 0)}
+                            readOnly
                           />
                         </div>
                         {item.lotes_disponibles && item.lotes_disponibles.length > 0 && (
@@ -755,15 +755,6 @@ export default function NuevaVentaPage() {
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Subtotal</span>
                   <span>{formatCurrency(subtotalBruto)}</span>
-                </div>
-                <div className="flex items-center justify-between text-sm gap-2">
-                  <span className="text-gray-500">Descuento</span>
-                  <input
-                    type="number" min="0" step="0.01"
-                    className="input py-1 w-28 text-right"
-                    value={descuento}
-                    onChange={e => setDescuento(parseFloat(e.target.value) || 0)}
-                  />
                 </div>
                 <div className="flex justify-between font-bold text-lg border-t border-gray-200 dark:border-gray-600 pt-2">
                   <span>TOTAL</span>
