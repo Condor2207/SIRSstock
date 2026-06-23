@@ -117,3 +117,21 @@ export function porcentajeCredito(saldo: number, limite: number): number {
   if (limite === 0) return 0;
   return Math.min(100, (saldo / limite) * 100);
 }
+
+export function getErrorMessage(error: unknown): string {
+  if (!error) return '';
+  if (typeof error === 'string') return error;
+  if (typeof error === 'object' && error !== null && 'message' in error) {
+    return String((error as { message?: unknown }).message || '');
+  }
+  return '';
+}
+
+export function isSchemaCacheMissing(error: unknown, refs: string[] = []): boolean {
+  const message = getErrorMessage(error).toLowerCase();
+  if (!message) return false;
+  const mentionsSchemaCache = message.includes('schema cache') || message.includes('could not find');
+  if (!mentionsSchemaCache) return false;
+  if (refs.length === 0) return true;
+  return refs.some(ref => message.includes(ref.toLowerCase()));
+}
