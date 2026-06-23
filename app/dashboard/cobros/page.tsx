@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
-import { formatCurrency, formatDate } from '@/lib/utils';
+import { formatCurrency, formatDate, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
 import { Plus, Search, Eye, X, Loader2, Handshake, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -77,13 +77,23 @@ export default function CobrosPage() {
     setFormHeader(f => ({ ...f, proveedor_id: proveedorId }));
     setGastosSelec([]);
     if (!proveedorId) { setGastosPendientes([]); return; }
-    const { data } = await supabase.from('gastos')
+    const { data, error } = await supabase.from('gastos')
       .select('id, categoria, titulo, monto, saldo_pendiente, fecha')
       .eq('proveedor_id', proveedorId)
       .eq('condicion', 'credito')
       .in('estado', ['pendiente', 'parcial'])
       .gt('saldo_pendiente', 0)
       .order('fecha');
+    if (error) {
+      if (isSchemaCacheMissing(error, ['gastos', 'estado', 'saldo_pendiente', 'condicion'])) {
+        toast.error('La base aún no tiene habilitados los gastos a crédito. Ejecute las migraciones pendientes para habilitar esta funcionalidad.');
+        setGastosPendientes([]);
+        return;
+      }
+      toast.error(getErrorMessage(error) || 'Error al cargar gastos pendientes');
+      setGastosPendientes([]);
+      return;
+    }
     setGastosPendientes(data as Gasto[] || []);
   }
 

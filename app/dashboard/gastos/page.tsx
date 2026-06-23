@@ -1,9 +1,9 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
-import { formatCurrency, formatDate, estadoBadgeClass } from '@/lib/utils';
+import { formatCurrency, formatDate, estadoBadgeClass, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
 import { Plus, Search, Receipt, X, Loader2, Edit2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Gasto, Proveedor, TasaIva } from '@/lib/types';
@@ -12,6 +12,8 @@ import { usePagination, Pagination, useSort, SortableTh } from '@/components/Tab
 const CATEGORIAS_BASE = ['Servicios', 'Combustible', 'Reparaciones', 'Insumos de oficina', 'Alquiler', 'Transporte', 'Marketing', 'Personal', 'Impuestos', 'Otros'];
 const MEDIOS_PAGO = ['efectivo', 'transferencia', 'cheque', 'tarjeta', 'otro'];
 const CREAR_CATEGORIA = '__INTERNAL_CREATE_CATEGORY__';
+const GASTOS_SELECT_ADVANCED = 'id, titulo, descripcion, proveedor_id, monto, fecha, medio_pago, categoria, referencia, created_by, created_at, condicion, fecha_vencimiento, numero_transaccion, banco_id, numero_cheque, fecha_cheque, tasa_iva_id, saldo_pendiente, estado, proveedores(nombre), tasa_iva_ref:tasas_iva(nombre, porcentaje)';
+const GASTOS_SELECT_BASE = 'id, titulo, descripcion, proveedor_id, monto, fecha, medio_pago, categoria, referencia, created_by, created_at, proveedores(nombre)';
 
 interface Banco { id: string; nombre: string; }
 
@@ -29,6 +31,8 @@ export default function GastosPage() {
   const [categorias, setCategorias] = useState<string[]>(CATEGORIAS_BASE);
   const [creandoCategoria, setCreandoCategoria] = useState(false);
   const [nuevaCategoria, setNuevaCategoria] = useState('');
+  const [schemaCompatMode, setSchemaCompatMode] = useState(false);
+  const compatToastShown = useRef(false);
   const [form, setForm] = useState({
     descripcion: '', proveedor_id: '', monto: '',
     fecha: new Date().toISOString().split('T')[0],
@@ -40,11 +44,36 @@ export default function GastosPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const { data } = await supabase
+    const advancedRes = await supabase
       .from('gastos')
-      .select('*, proveedores(nombre), tasa_iva_ref:tasas_iva(nombre, porcentaje)')
+      .select(GASTOS_SELECT_ADVANCED)
       .order('fecha', { ascending: false })
       .limit(100);
+    let data: any[] | null = advancedRes.data;
+    let error: any = advancedRes.error;
+    if (error && isSchemaCacheMissing(error, ['gastos', 'estado', 'saldo_pendiente', 'condicion', 'tasas_iva'])) {
+      setSchemaCompatMode(true);
+      const baseRes = await supabase
+        .from('gastos')
+        .select(GASTOS_SELECT_BASE)
+        .order('fecha', { ascending: false })
+        .limit(100);
+      data = baseRes.data;
+      error = baseRes.error;
+      if (!compatToastShown.current) {
+        toast.error('La base de datos no tiene aún todas las columnas de gastos. Se ha activado un modo compatible.');
+        compatToastShown.current = true;
+      }
+    } else {
+      setSchemaCompatMode(false);
+    }
+    if (error) {
+      toast.error(getErrorMessage(error) || 'Error al cargar gastos');
+      setGastos([]);
+      setCategorias(CATEGORIAS_BASE);
+      setLoading(false);
+      return;
+    }
     const rows = (data as Gasto[] || []);
     setGastos(rows);
     const categoriasDb = rows.map(g => (g.categoria || g.titulo || '').trim()).filter(Boolean);
@@ -56,8 +85,8 @@ export default function GastosPage() {
   useEffect(() => {
     load();
     supabase.from('proveedores').select('id, nombre').eq('activo', true).order('nombre').then(r => setProveedores(r.data as Proveedor[] || []));
-    supabase.from('bancos').select('id, nombre').eq('activo', true).order('nombre').then(r => setBancos(r.data as Banco[] || []));
-    supabase.from('tasas_iva').select('id, nombre, porcentaje').eq('activo', true).order('porcentaje').then(r => setTasasIva(r.data as TasaIva[] || []));
+    supabase.from('bancos').select('id, nombre').eq('activo', true).order('nombre').then(r => setBancos(r.error ? [] : (r.data as Banco[] || [])));
+    supabase.from('tasas_iva').select('id, nombre, porcentaje').eq('activo', true).order('porcentaje').then(r => setTasasIva(r.error ? [] : (r.data as TasaIva[] || [])));
   }, [load, supabase]);
 
   function resetForm() {
@@ -113,9 +142,14 @@ export default function GastosPage() {
 
   async function handleSave() {
     if (!form.categoria || !form.monto) { toast.error('Categoría y monto son obligatorios'); return; }
-    if (form.condicion === 'credito' && !form.proveedor_id) { toast.error('En gastos a crédito el proveedor es obligatorio'); return; }
+    const proveedorId = form.proveedor_id.trim();
+    if (!proveedorId) { toast.error('Por favor seleccione un proveedor'); return; }
     const monto = parseFloat(form.monto);
     if (isNaN(monto) || monto <= 0) { toast.error('El monto debe ser mayor a 0'); return; }
+    if (schemaCompatMode && form.condicion === 'credito') {
+      toast.error('No se pueden registrar gastos a crédito porque faltan columnas en la base de datos. Por favor ejecute las migraciones 009, 010 y 011.');
+      return;
+    }
 
     let saldoPendiente = 0;
     let estado: 'pendiente' | 'pagado' | 'parcial' = 'pagado';
@@ -133,25 +167,29 @@ export default function GastosPage() {
 
     setSaving(true);
     try {
-      const payload = {
+      const payload: Record<string, any> = {
         titulo: form.categoria,
         descripcion: form.descripcion || null,
-        proveedor_id: form.proveedor_id || null,
+        proveedor_id: proveedorId,
         monto,
         fecha: form.fecha,
         medio_pago: form.medio_pago,
         categoria: form.categoria,
         referencia: form.referencia || null,
-        condicion: form.condicion,
-        fecha_vencimiento: form.condicion === 'credito' ? (form.fecha_vencimiento || null) : null,
-        numero_transaccion: form.medio_pago === 'transferencia' ? (form.numero_transaccion || null) : null,
-        banco_id: form.medio_pago === 'cheque' ? (form.banco_id || null) : null,
-        numero_cheque: form.medio_pago === 'cheque' ? (form.numero_cheque || null) : null,
-        fecha_cheque: form.medio_pago === 'cheque' ? (form.fecha_cheque || null) : null,
-        tasa_iva_id: form.tasa_iva_id || null,
-        saldo_pendiente: saldoPendiente,
-        estado,
       };
+      if (!schemaCompatMode) {
+        Object.assign(payload, {
+          condicion: form.condicion,
+          fecha_vencimiento: form.condicion === 'credito' ? (form.fecha_vencimiento || null) : null,
+          numero_transaccion: form.medio_pago === 'transferencia' ? (form.numero_transaccion || null) : null,
+          banco_id: form.medio_pago === 'cheque' ? (form.banco_id || null) : null,
+          numero_cheque: form.medio_pago === 'cheque' ? (form.numero_cheque || null) : null,
+          fecha_cheque: form.medio_pago === 'cheque' ? (form.fecha_cheque || null) : null,
+          tasa_iva_id: form.tasa_iva_id || null,
+          saldo_pendiente: saldoPendiente,
+          estado,
+        });
+      }
       const { error } = editando
         ? await supabase.from('gastos').update(payload).eq('id', editando.id)
         : await supabase.from('gastos').insert(payload);
@@ -161,7 +199,7 @@ export default function GastosPage() {
       resetForm();
       load();
     } catch (e: any) {
-      toast.error(e.message || 'Error al guardar');
+      toast.error(getErrorMessage(e) || 'Error al guardar');
     } finally {
       setSaving(false);
     }
@@ -214,9 +252,9 @@ export default function GastosPage() {
                     <SortableTh label="Fecha" sortKey="fecha" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Categoría" sortKey="categoria" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Proveedor" sortKey="proveedor_nombre" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                    <SortableTh label="IVA" sortKey="tasa_iva_id" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                    <SortableTh label="Condición" sortKey="condicion" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                    <SortableTh label="Estado" sortKey="estado" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    {!schemaCompatMode && <SortableTh label="IVA" sortKey="tasa_iva_id" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />}
+                    {!schemaCompatMode && <SortableTh label="Condición" sortKey="condicion" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />}
+                    {!schemaCompatMode && <SortableTh label="Estado" sortKey="estado" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />}
                     <SortableTh label="Monto" sortKey="monto" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header text-right">Acciones</th>
                   </tr>
@@ -230,11 +268,13 @@ export default function GastosPage() {
                         {g.descripcion && <div className="text-xs text-gray-400">{g.descripcion}</div>}
                       </td>
                       <td className="table-cell text-sm">{(g as any).proveedores?.nombre || '-'}</td>
-                      <td className="table-cell text-sm">{(g as any).tasa_iva_ref ? `${(g as any).tasa_iva_ref.nombre} (${(g as any).tasa_iva_ref.porcentaje}%)` : '-'}</td>
-                      <td className="table-cell capitalize">{g.condicion || 'debito'}</td>
-                      <td className="table-cell">
-                        <span className={`badge ${estadoBadgeClass(g.estado || 'pagado')}`}>{g.estado || 'pagado'}</span>
-                      </td>
+                      {!schemaCompatMode && <td className="table-cell text-sm">{(g as any).tasa_iva_ref ? `${(g as any).tasa_iva_ref.nombre} (${(g as any).tasa_iva_ref.porcentaje}%)` : '-'}</td>}
+                      {!schemaCompatMode && <td className="table-cell capitalize">{g.condicion || 'debito'}</td>}
+                      {!schemaCompatMode && (
+                        <td className="table-cell">
+                          <span className={`badge ${estadoBadgeClass(g.estado || 'pagado')}`}>{g.estado || 'pagado'}</span>
+                        </td>
+                      )}
                       <td className="table-cell font-bold text-red-500">{formatCurrency(g.monto)}</td>
                       <td className="table-cell text-right">
                         <button onClick={() => openEdit(g)} className="p-1 text-blue-500 hover:text-blue-700" title="Editar gasto">
@@ -246,7 +286,7 @@ export default function GastosPage() {
                 </tbody>
                 <tfoot>
                   <tr className="bg-gray-50 dark:bg-gray-800/50">
-                    <td colSpan={6} className="px-4 py-3 text-right text-sm font-semibold text-gray-600 dark:text-gray-400">Total:</td>
+                    <td colSpan={schemaCompatMode ? 3 : 6} className="px-4 py-3 text-right text-sm font-semibold text-gray-600 dark:text-gray-400">Total:</td>
                     <td className="px-4 py-3 font-bold text-red-500 text-base">{formatCurrency(totalFiltrado)}</td>
                     <td></td>
                   </tr>
@@ -307,33 +347,37 @@ export default function GastosPage() {
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="label">Condición</label>
-                  <select className="input" value={form.condicion} onChange={e => setForm(f => ({ ...f, condicion: e.target.value as 'debito' | 'credito' }))}>
-                    <option value="debito">Débito (pagado)</option>
-                    <option value="credito">Crédito (a pagar)</option>
-                  </select>
-                </div>
-                <div>
-                  <label className="label">IVA</label>
-                  <select className="input" value={form.tasa_iva_id} onChange={e => setForm(f => ({ ...f, tasa_iva_id: e.target.value }))}>
-                    <option value="">Sin IVA</option>
-                    {tasasIva.map(t => <option key={t.id} value={t.id}>{t.nombre} ({t.porcentaje}%)</option>)}
-                  </select>
-                </div>
+                {!schemaCompatMode && (
+                  <div>
+                    <label className="label">Condición</label>
+                    <select className="input" value={form.condicion} onChange={e => setForm(f => ({ ...f, condicion: e.target.value as 'debito' | 'credito' }))}>
+                      <option value="debito">Débito (pagado)</option>
+                      <option value="credito">Crédito (a pagar)</option>
+                    </select>
+                  </div>
+                )}
+                {!schemaCompatMode && (
+                  <div>
+                    <label className="label">IVA</label>
+                    <select className="input" value={form.tasa_iva_id} onChange={e => setForm(f => ({ ...f, tasa_iva_id: e.target.value }))}>
+                      <option value="">Sin IVA</option>
+                      {tasasIva.map(t => <option key={t.id} value={t.id}>{t.nombre} ({t.porcentaje}%)</option>)}
+                    </select>
+                  </div>
+                )}
                 <div>
                   <label className="label">Medio de pago</label>
                   <select className="input" value={form.medio_pago} onChange={e => setForm(f => ({ ...f, medio_pago: e.target.value }))}>
                     {MEDIOS_PAGO.map(m => <option key={m} className="capitalize">{m}</option>)}
                   </select>
                 </div>
-                {form.medio_pago === 'transferencia' && (
+                {!schemaCompatMode && form.medio_pago === 'transferencia' && (
                   <div>
                     <label className="label">N° Transacción</label>
                     <input className="input" placeholder="TRF-00001" value={form.numero_transaccion} onChange={e => setForm(f => ({ ...f, numero_transaccion: e.target.value }))} />
                   </div>
                 )}
-                {form.medio_pago === 'cheque' && (
+                {!schemaCompatMode && form.medio_pago === 'cheque' && (
                   <>
                     <div>
                       <label className="label">N° Cheque</label>
@@ -352,7 +396,7 @@ export default function GastosPage() {
                     </div>
                   </>
                 )}
-                {form.condicion === 'credito' && (
+                {!schemaCompatMode && form.condicion === 'credito' && (
                   <div>
                     <label className="label">Fecha vencimiento</label>
                     <input type="date" className="input" value={form.fecha_vencimiento} onChange={e => setForm(f => ({ ...f, fecha_vencimiento: e.target.value }))} />
@@ -360,9 +404,9 @@ export default function GastosPage() {
                 )}
               </div>
               <div>
-                <label className="label">Proveedor {form.condicion === 'credito' ? '*' : '(opcional)'}</label>
+                <label className="label">Proveedor *</label>
                 <select className="input" value={form.proveedor_id} onChange={e => setForm(f => ({ ...f, proveedor_id: e.target.value }))}>
-                  <option value="">{form.condicion === 'credito' ? 'Seleccionar proveedor' : 'Sin proveedor'}</option>
+                  <option value="">Seleccionar proveedor</option>
                   {proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
                 </select>
               </div>

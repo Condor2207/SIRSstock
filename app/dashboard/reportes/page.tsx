@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
-import { formatCurrency, formatDate, formatNumber, diasHastaVencimiento, estadoVencimiento } from '@/lib/utils';
+import { formatCurrency, formatDate, formatNumber, diasHastaVencimiento, estadoVencimiento, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line } from 'recharts';
 import { Download, BarChart2, Package, Users, AlertTriangle, Loader2, CreditCard, BadgePercent, Receipt, FileText } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -92,15 +92,24 @@ export default function ReportesPage() {
         }
         setComisionesData(Object.values(byVendedor));
       } else if (tab === 'gastos_credito') {
-        const { data } = await supabase
+        const { data, error } = await supabase
           .from('gastos')
           .select('titulo, fecha, monto, fecha_vencimiento, categoria, proveedores(nombre)')
           .eq('condicion', 'credito')
           .order('fecha_vencimiento', { ascending: true });
+        if (error) {
+          if (isSchemaCacheMissing(error, ['gastos', 'condicion', 'fecha_vencimiento'])) {
+            setGastosCreditoData([]);
+            toast.error('La base aún no tiene habilitado el reporte de gastos a crédito. Por favor ejecute las migraciones pendientes para usar esta función.');
+            return;
+          }
+          throw error;
+        }
         setGastosCreditoData(data || []);
       }
     } catch (e) {
       console.error(e);
+      toast.error(getErrorMessage(e) || 'Error al cargar reportes');
     } finally {
       setLoading(false);
     }

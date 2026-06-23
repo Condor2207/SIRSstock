@@ -36,7 +36,10 @@ Sistema full-stack de gestión comercial para empresas productoras y distribuido
    - `006_cobros_comisiones.sql`
    - `007_fixes.sql`
    - `008_empresa_config_hotfix.sql`
-3. Si ya tenías una base creada y aparece `Could not find the table 'public.xxx' in the schema cache`, ejecutá **todas** las migraciones desde `003_rg90.sql` en adelante — seguras de re-ejecutar gracias a `IF NOT EXISTS`.
+   - `009_schema_compat_modulos.sql`
+   - `010_modulos_credito_gastos.sql`
+   - `011_schema_catchall.sql`
+3. Si ya tenías una base creada y aparece `Could not find the table 'public.xxx' in the schema cache` o faltan columnas nuevas de gastos/compras/cobros, ejecutá **todas** las migraciones desde `003_rg90.sql` en adelante — seguras de re-ejecutar gracias a `IF NOT EXISTS`.
 4. Copiar URL y Anon Key desde **Settings → API**
 
 ### 2. Variables de entorno
