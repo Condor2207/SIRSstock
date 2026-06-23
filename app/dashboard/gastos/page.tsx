@@ -12,6 +12,8 @@ import { usePagination, Pagination, useSort, SortableTh } from '@/components/Tab
 const CATEGORIAS_BASE = ['Servicios', 'Combustible', 'Reparaciones', 'Insumos de oficina', 'Alquiler', 'Transporte', 'Marketing', 'Personal', 'Impuestos', 'Otros'];
 const MEDIOS_PAGO = ['efectivo', 'transferencia', 'cheque', 'tarjeta', 'otro'];
 const CREAR_CATEGORIA = '__INTERNAL_CREATE_CATEGORY__';
+const GASTOS_SELECT_ADVANCED = 'id, titulo, descripcion, proveedor_id, monto, fecha, medio_pago, categoria, referencia, created_by, created_at, condicion, fecha_vencimiento, numero_transaccion, banco_id, numero_cheque, fecha_cheque, tasa_iva_id, saldo_pendiente, estado, proveedores(nombre), tasa_iva_ref:tasas_iva(nombre, porcentaje)';
+const GASTOS_SELECT_BASE = 'id, titulo, descripcion, proveedor_id, monto, fecha, medio_pago, categoria, referencia, created_by, created_at, proveedores(nombre)';
 
 interface Banco { id: string; nombre: string; }
 
@@ -42,11 +44,9 @@ export default function GastosPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const advancedSelect = 'id, titulo, descripcion, proveedor_id, monto, fecha, medio_pago, categoria, referencia, created_by, created_at, condicion, fecha_vencimiento, numero_transaccion, banco_id, numero_cheque, fecha_cheque, tasa_iva_id, saldo_pendiente, estado, proveedores(nombre), tasa_iva_ref:tasas_iva(nombre, porcentaje)';
-    const baseSelect = 'id, titulo, descripcion, proveedor_id, monto, fecha, medio_pago, categoria, referencia, created_by, created_at, proveedores(nombre)';
     const advancedRes = await supabase
       .from('gastos')
-      .select(advancedSelect)
+      .select(GASTOS_SELECT_ADVANCED)
       .order('fecha', { ascending: false })
       .limit(100);
     let data: any[] | null = advancedRes.data;
@@ -55,7 +55,7 @@ export default function GastosPage() {
       setSchemaCompatMode(true);
       const baseRes = await supabase
         .from('gastos')
-        .select(baseSelect)
+        .select(GASTOS_SELECT_BASE)
         .order('fecha', { ascending: false })
         .limit(100);
       data = baseRes.data;
@@ -142,7 +142,8 @@ export default function GastosPage() {
 
   async function handleSave() {
     if (!form.categoria || !form.monto) { toast.error('Categoría y monto son obligatorios'); return; }
-    if (!form.proveedor_id) { toast.error('Por favor seleccione un proveedor'); return; }
+    const proveedorId = form.proveedor_id.trim();
+    if (!proveedorId) { toast.error('Por favor seleccione un proveedor'); return; }
     const monto = parseFloat(form.monto);
     if (isNaN(monto) || monto <= 0) { toast.error('El monto debe ser mayor a 0'); return; }
     if (schemaCompatMode && form.condicion === 'credito') {
@@ -169,7 +170,7 @@ export default function GastosPage() {
       const payload: Record<string, any> = {
         titulo: form.categoria,
         descripcion: form.descripcion || null,
-        proveedor_id: form.proveedor_id,
+        proveedor_id: proveedorId,
         monto,
         fecha: form.fecha,
         medio_pago: form.medio_pago,

@@ -136,5 +136,8 @@ export function isSchemaCacheMissing(error: unknown, refs: string[] = []): boole
   const mentionsSchemaCache = message.includes('schema cache') || message.includes('could not find');
   if (!mentionsSchemaCache) return false;
   if (refs.length === 0) return true;
-  return refs.some(ref => message.includes(ref.toLowerCase()));
+  return refs.some(ref => {
+    const escaped = ref.toLowerCase().replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    return new RegExp(`(^|[^a-z0-9_])${escaped}([^a-z0-9_]|$)`).test(message);
+  });
 }
