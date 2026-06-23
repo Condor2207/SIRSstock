@@ -263,7 +263,7 @@ DO $$
 BEGIN
   IF NOT EXISTS (
     SELECT 1 FROM pg_policies
-    WHERE schemaname = 'public' AND tablename = 'cobro_gastos' AND policyname = 'auth_all_cobro_gastos'
+    WHERE tablename = 'cobro_gastos' AND policyname = 'auth_all_cobro_gastos'
   ) THEN
     CREATE POLICY "auth_all_cobro_gastos" ON cobro_gastos FOR ALL TO authenticated USING (true) WITH CHECK (true);
   END IF;
