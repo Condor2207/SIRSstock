@@ -255,7 +255,6 @@ export default function VentasPage() {
 
               <div className="flex justify-end">
                 <div className="text-right space-y-1">
-                  {detalle.descuento > 0 && <div className="text-sm text-gray-500">Descuento: -{formatCurrency(detalle.descuento)}</div>}
                   <div className="text-lg font-bold">Total: {formatCurrency(detalle.total)}</div>
                   {detalle.saldo_pendiente > 0 && <div className="text-red-500 font-semibold">Saldo: {formatCurrency(detalle.saldo_pendiente)}</div>}
                 </div>
