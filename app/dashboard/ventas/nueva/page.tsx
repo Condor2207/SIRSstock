@@ -39,7 +39,6 @@ export default function NuevaVentaPage() {
   const [condicionPago, setCondicionPago] = useState<'contado' | 'credito'>('contado');
   const [plazoDias, setPlazoDias] = useState(30);
   const [cantidadCuotas, setCantidadCuotas] = useState(1);
-  const [descuento, setDescuento] = useState(0);
   const [numeroFactura, setNumeroFactura] = useState('');
   const [puntoVenta, setPuntoVenta] = useState('');
   const [notas, setNotas] = useState('');
@@ -145,8 +144,9 @@ export default function NuevaVentaPage() {
         item.numero_lote = lote?.numero_lote;
         item.fecha_vencimiento = lote?.fecha_vencimiento;
       }
-      if (campo === 'cantidad' || campo === 'precio_unitario') {
-        item.subtotal = (parseFloat(String(item.cantidad)) || 0) * (parseFloat(String(item.precio_unitario)) || 0);
+      if (campo === 'cantidad') {
+        item.cantidad = Math.max(1, Math.round(parseFloat(String(item.cantidad)) || 0));
+        item.subtotal = item.cantidad * (parseFloat(String(item.precio_unitario)) || 0);
       }
       updated[idx] = item;
       return updated;
@@ -158,7 +158,7 @@ export default function NuevaVentaPage() {
   }
 
   const subtotalBruto = items.reduce((s, i) => s + (i.subtotal || 0), 0);
-  const total = Math.max(0, subtotalBruto - descuento);
+  const total = subtotalBruto;
   const cuotasPreview = condicionPago === 'credito' && cantidadCuotas > 0 && total > 0
     ? calcularCuotas(total, cantidadCuotas, plazoDias)
     : [];
@@ -205,7 +205,7 @@ export default function NuevaVentaPage() {
         plazo_dias: condicionPago === 'credito' ? plazoDias : null,
         cantidad_cuotas: condicionPago === 'credito' ? cantidadCuotas : 1,
         subtotal: subtotalBruto,
-        descuento: descuento,
+        descuento: 0,
         total,
         saldo_pendiente: condicionPago === 'credito' ? total : 0,
         estado: condicionPago === 'contado' ? 'pagado' : 'pendiente',
@@ -331,7 +331,6 @@ export default function NuevaVentaPage() {
     setCondicionPago('contado');
     setPlazoDias(30);
     setCantidadCuotas(1);
-    setDescuento(0);
     setNumeroFactura('');
     setPuntoVenta('');
     setTimbrado(empresaConfig?.timbrado || '');
@@ -364,9 +363,6 @@ export default function NuevaVentaPage() {
       const clienteNombre = clienteSeleccionado?.nombre || '—';
       const clienteDoc = clienteSeleccionado?.documento || '—';
       const condStr = condicionPago === 'contado' ? 'Contado' : 'Crédito (' + plazoDias + ' días)';
-      const descuentoHtml = descuento > 0
-        ? '<tr><td style="padding:3px 8px">Descuento:</td><td style="padding:3px 8px;text-align:right">- ' + formatCurrency(descuento) + '</td></tr>'
-        : '';
       const notasHtml = notas
         ? '<div style="margin-top:15px;font-size:11px;color:#555;border-top:1px dashed #ccc;padding-top:8px"><strong>Observaciones:</strong> ' + notas + '</div>'
         : '';
@@ -407,7 +403,6 @@ export default function NuevaVentaPage() {
         '</tr></thead><tbody>' + itemsHtml + '</tbody></table>' +
         '<div style="text-align:right;margin-top:10px"><table style="margin-left:auto">' +
         '<tr><td style="padding:3px 8px">Subtotal:</td><td style="padding:3px 8px;text-align:right;min-width:140px">' + formatCurrency(subtotalBruto) + '</td></tr>' +
-        descuentoHtml +
         '<tr><td style="padding:6px 8px;font-size:15px;font-weight:bold;border-top:2px solid #000">TOTAL:</td>' +
         '<td style="padding:6px 8px;text-align:right;font-size:15px;font-weight:bold;border-top:2px solid #000">' + formatCurrency(total) + '</td></tr>' +
         '</table></div>' +
@@ -419,9 +414,6 @@ export default function NuevaVentaPage() {
       const clienteHtml = clienteSeleccionado
         ? '<div style="display:flex;justify-content:space-between;margin:2px 0"><span>Cliente:</span><span>' + clienteSeleccionado.nombre + '</span></div>'
         : '<div style="text-align:center;font-size:10px">Consumidor final</div>';
-      const descuentoHtml = descuento > 0
-        ? '<div style="display:flex;justify-content:space-between;margin:2px 0"><span>Descuento:</span><span>- ' + formatCurrency(descuento) + '</span></div>'
-        : '';
       const ticketItems = items.map(item =>
         '<div style="margin:4px 0">' +
         '<div style="font-weight:bold;font-size:11px">' + (item.producto_nombre.split(' - ').slice(1).join(' - ') || item.producto_nombre) + '</div>' +
@@ -449,7 +441,6 @@ export default function NuevaVentaPage() {
         '<div class="line"></div>' +
         ticketItems +
         '<div class="line"></div>' +
-        descuentoHtml +
         '<div style="display:flex;justify-content:space-between;font-size:15px;font-weight:bold;margin-top:4px">' +
         '<span>TOTAL:</span><span>' + formatCurrency(total) + '</span></div>' +
         '<div style="display:flex;justify-content:space-between;font-size:11px;margin-top:4px">' +
@@ -622,17 +613,14 @@ export default function NuevaVentaPage() {
                             type="number" min="1" step="1"
                             className="input py-1.5"
                             value={item.cantidad}
-                            onChange={e => actualizarItem(idx, 'cantidad', parseInt(e.target.value) || 0)}
+                            onChange={e => actualizarItem(idx, 'cantidad', Math.max(1, parseInt(e.target.value) || 1))}
                           />
                         </div>
                         <div>
                           <label className="label text-xs">Precio unitario</label>
-                          <input
-                            type="number"
-                            className="input py-1.5 bg-gray-100 dark:bg-gray-700 cursor-not-allowed"
-                            value={item.precio_unitario}
-                            readOnly
-                          />
+                          <div className="input py-1.5 bg-gray-100 dark:bg-gray-700 font-medium">
+                            {formatCurrency(item.precio_unitario)}
+                          </div>
                         </div>
                         {item.lotes_disponibles && item.lotes_disponibles.length > 0 && (
                           <div>

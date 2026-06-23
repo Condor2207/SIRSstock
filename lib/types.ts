@@ -260,7 +260,11 @@ export interface Gasto {
   medio_pago: 'efectivo' | 'transferencia' | 'cheque' | 'tarjeta' | 'otro';
   condicion?: 'debito' | 'credito';
   fecha_vencimiento?: string;
+  saldo_pendiente?: number;
+  estado?: 'pendiente' | 'pagado' | 'parcial' | 'anulado';
   categoria?: string;
+  tasa_iva_id?: string;
+  tasa_iva_ref?: TasaIva;
   referencia?: string;
   created_by?: string;
   created_at: string;
@@ -384,6 +388,7 @@ export interface Vendedor {
   nombre: string;
   telefono?: string;
   email?: string;
+  porcentaje_venta?: number;
   activo: boolean;
   created_at: string;
 }
@@ -426,8 +431,11 @@ export interface Cobro {
   id: string;
   numero: string;
   fecha: string;
+  tipo_referencia?: 'clientes' | 'gastos';
   cliente_id?: string;
   cliente?: Cliente;
+  proveedor_id?: string;
+  proveedor?: Proveedor;
   concepto?: string;
   total_facturas: number;
   total_retenciones: number;
@@ -437,6 +445,7 @@ export interface Cobro {
   created_by?: string;
   created_at: string;
   cobro_facturas?: CobroFactura[];
+  cobro_gastos?: CobroGasto[];
   cobro_retenciones?: CobroRetencion[];
   cobro_medios_pago?: CobroMedioPago[];
 }
@@ -446,6 +455,14 @@ export interface CobroFactura {
   cobro_id: string;
   venta_id: string;
   venta?: Venta;
+  monto_aplicado: number;
+}
+
+export interface CobroGasto {
+  id: string;
+  cobro_id: string;
+  gasto_id: string;
+  gasto?: Gasto;
   monto_aplicado: number;
 }
 

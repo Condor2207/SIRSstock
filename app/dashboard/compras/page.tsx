@@ -288,12 +288,12 @@ export default function ComprasPage() {
             <div className="p-5 space-y-4">
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="label">Proveedor</label>
+                  <label className="label">Proveedor {form.condicion_pago === 'credito' ? '*' : ''}</label>
                   <SearchSelect
                     options={proveedores.map(p => ({ value: p.id, label: p.nombre }))}
                     value={form.proveedor_id}
                     onChange={v => setForm(f => ({ ...f, proveedor_id: v }))}
-                    placeholder="Sin proveedor"
+                    placeholder={form.condicion_pago === 'credito' ? 'Seleccionar proveedor' : 'Sin proveedor'}
                   />
                 </div>
                 <div>
@@ -465,3 +465,4 @@ export default function ComprasPage() {
     </>
   );
 }
+    if (form.condicion_pago === 'credito' && !form.proveedor_id) { toast.error('En compras a crédito el proveedor es obligatorio'); return; }
