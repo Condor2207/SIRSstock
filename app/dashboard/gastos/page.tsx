@@ -11,7 +11,7 @@ import { usePagination, Pagination, useSort, SortableTh } from '@/components/Tab
 
 const CATEGORIAS_BASE = ['Servicios', 'Combustible', 'Reparaciones', 'Insumos de oficina', 'Alquiler', 'Transporte', 'Marketing', 'Personal', 'Impuestos', 'Otros'];
 const MEDIOS_PAGO = ['efectivo', 'transferencia', 'cheque', 'tarjeta', 'otro'];
-const CREAR_CATEGORIA = '__crear_categoria__';
+const CREAR_CATEGORIA = '__INTERNAL_CREATE_CATEGORY__';
 
 interface Banco { id: string; nombre: string; }
 
@@ -114,7 +114,7 @@ export default function GastosPage() {
   async function handleSave() {
     if (!form.categoria || !form.monto) { toast.error('Categoría y monto son obligatorios'); return; }
     if (form.condicion === 'credito' && !form.proveedor_id) { toast.error('En gastos a crédito el proveedor es obligatorio'); return; }
-    const monto = parseFloat(form.monto);
+    const monto = parseInt(form.monto, 10);
     if (isNaN(monto) || monto <= 0) { toast.error('El monto debe ser mayor a 0'); return; }
 
     let saldoPendiente = 0;
@@ -123,7 +123,7 @@ export default function GastosPage() {
       if (editando) {
         const saldoAnterior = editando.saldo_pendiente ?? editando.monto;
         const pagado = Math.max(0, (editando.monto || 0) - saldoAnterior);
-        if (monto < pagado) { toast.error('El monto no puede ser menor al importe ya pagado'); return; }
+        if (monto < pagado) { toast.error(`El monto (${formatCurrency(monto)}) no puede ser menor al importe ya pagado (${formatCurrency(pagado)})`); return; }
         saldoPendiente = Math.max(0, monto - pagado);
       } else {
         saldoPendiente = monto;

@@ -41,7 +41,7 @@ export default function VendedoresPage() {
       nombre,
       telefono: telefono || null,
       email: email || null,
-      porcentaje_venta: Math.max(0, parseFloat(form.porcentaje_venta) || 0),
+      porcentaje_venta: Math.min(100, Math.max(0, parseFloat(form.porcentaje_venta) || 0)),
       activo: form.activo
     };
     const { error } = editando

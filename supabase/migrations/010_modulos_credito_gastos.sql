@@ -6,6 +6,17 @@
 ALTER TABLE vendedores
   ADD COLUMN IF NOT EXISTS porcentaje_venta NUMERIC(5,2) NOT NULL DEFAULT 0;
 
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_constraint WHERE conname = 'vendedores_porcentaje_venta_chk'
+  ) THEN
+    ALTER TABLE vendedores
+      ADD CONSTRAINT vendedores_porcentaje_venta_chk
+      CHECK (porcentaje_venta >= 0 AND porcentaje_venta <= 100);
+  END IF;
+END $$;
+
 -- Gastos: IVA y control de saldo/estado para crédito
 ALTER TABLE gastos
   ADD COLUMN IF NOT EXISTS tasa_iva_id UUID REFERENCES tasas_iva(id),
