@@ -100,7 +100,7 @@ export default function ReportesPage() {
         if (error) {
           if (isSchemaCacheMissing(error, ['gastos', 'condicion', 'fecha_vencimiento'])) {
             setGastosCreditoData([]);
-            toast.error('La base aún no tiene habilitado el reporte de gastos a crédito. Ejecutá las migraciones pendientes para usar esta función.');
+            toast.error('La base aún no tiene habilitado el reporte de gastos a crédito. Por favor ejecute las migraciones pendientes para usar esta función.');
             return;
           }
           throw error;

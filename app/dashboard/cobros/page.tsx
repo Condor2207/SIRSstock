@@ -86,7 +86,7 @@ export default function CobrosPage() {
       .order('fecha');
     if (error) {
       if (isSchemaCacheMissing(error, ['gastos', 'estado', 'saldo_pendiente', 'condicion'])) {
-        toast.error('La base aún no tiene habilitados los gastos a crédito.');
+        toast.error('La base aún no tiene habilitados los gastos a crédito. Ejecute las migraciones pendientes para habilitar esta funcionalidad.');
         setGastosPendientes([]);
         return;
       }

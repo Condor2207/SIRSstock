@@ -127,6 +127,9 @@ export function getErrorMessage(error: unknown): string {
   return '';
 }
 
+// Detecta errores de Supabase/PostgREST causados por columnas o tablas faltantes
+// en el schema cache. Si se pasan refs, solo devuelve true cuando el mensaje
+// también menciona alguna de esas referencias.
 export function isSchemaCacheMissing(error: unknown, refs: string[] = []): boolean {
   const message = getErrorMessage(error).toLowerCase();
   if (!message) return false;

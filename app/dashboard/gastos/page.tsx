@@ -61,7 +61,7 @@ export default function GastosPage() {
       data = baseRes.data;
       error = baseRes.error;
       if (!compatToastShown.current) {
-        toast.error('Tu base no tiene aún todas las columnas de gastos. Se activó un modo compatible.');
+        toast.error('La base de datos no tiene aún todas las columnas de gastos. Se ha activado un modo compatible.');
         compatToastShown.current = true;
       }
     } else {
@@ -146,7 +146,7 @@ export default function GastosPage() {
     const monto = parseFloat(form.monto);
     if (isNaN(monto) || monto <= 0) { toast.error('El monto debe ser mayor a 0'); return; }
     if (schemaCompatMode && form.condicion === 'credito') {
-      toast.error('Para registrar gastos a crédito primero ejecutá las migraciones SQL pendientes.');
+      toast.error('Para registrar gastos a crédito primero ejecute las migraciones SQL pendientes.');
       return;
     }
 
