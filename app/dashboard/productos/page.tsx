@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
-import { formatCurrency } from '@/lib/utils';
+import { formatCurrency, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
 import { Plus, Search, Edit2, Trash2, X, Loader2, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -124,7 +124,7 @@ export default function ProductosPage() {
   async function handleSave() {
     if (!form.sku || !form.nombre) { toast.error('SKU y nombre son obligatorios'); return; }
     setSaving(true);
-    const payload: any = {
+    const payloadBase: any = {
       sku: form.sku.toUpperCase(), nombre: form.nombre,
       descripcion: form.descripcion || null,
       categoria_id: form.categoria_id || null,
@@ -133,6 +133,8 @@ export default function ProductosPage() {
       precio_compra: parseFloat(form.precio_compra) || 0,
       stock_minimo: parseFloat(form.stock_minimo) || 0,
       control_lote: form.control_lote, activo: form.activo,
+    };
+    const payloadExtra: any = {
       clasificacion_id: form.clasificacion_id || null,
       codigo_barras: form.codigo_barras || null,
       marca_id: form.marca_id || null,
@@ -144,14 +146,26 @@ export default function ProductosPage() {
       porcentaje_comision: parseFloat(form.porcentaje_comision) || 0,
     };
     try {
+      const payload = { ...payloadBase, ...payloadExtra };
+      const retryRefs = ['clasificacion_id', 'codigo_barras', 'marca_id', 'linea_id', 'grupo_id', 'tasa_iva_id', 'es_exportacion', 'plazo_vencimiento_meses', 'porcentaje_comision'];
       let productoId = editando?.id;
       if (editando) {
-        const { error } = await supabase.from('productos').update(payload).eq('id', editando.id);
+        let { error } = await supabase.from('productos').update(payload).eq('id', editando.id);
+        if (error && isSchemaCacheMissing(error, retryRefs)) {
+          const fallback = await supabase.from('productos').update(payloadBase).eq('id', editando.id);
+          error = fallback.error;
+        }
         if (error) throw error;
         toast.success('Producto actualizado');
       } else {
-        const { data, error } = await supabase.from('productos').insert({ ...payload, stock_actual: 0 }).select('id').single();
+        let { data, error } = await supabase.from('productos').insert({ ...payload, stock_actual: 0 }).select('id').single();
+        if (error && isSchemaCacheMissing(error, retryRefs)) {
+          const fallback = await supabase.from('productos').insert({ ...payloadBase, stock_actual: 0 }).select('id').single();
+          data = fallback.data;
+          error = fallback.error;
+        }
         if (error) throw error;
+        if (!data?.id) throw new Error('No se pudo obtener el ID del producto creado');
         productoId = data.id;
         toast.success('Producto creado');
       }
@@ -175,7 +189,7 @@ export default function ProductosPage() {
       setShowModal(false);
       loadData();
     } catch (e: any) {
-      toast.error(e.message || 'Error al guardar');
+      toast.error(getErrorMessage(e) || 'Error al guardar');
     } finally {
       setSaving(false);
     }

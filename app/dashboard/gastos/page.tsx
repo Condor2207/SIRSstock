@@ -173,7 +173,7 @@ export default function GastosPage() {
         proveedor_id: proveedorId,
         monto,
         fecha: form.fecha,
-        medio_pago: form.medio_pago,
+        medio_pago: form.condicion === 'credito' ? 'otro' : form.medio_pago,
         categoria: form.categoria,
         referencia: form.referencia || null,
       };
@@ -365,19 +365,26 @@ export default function GastosPage() {
                     </select>
                   </div>
                 )}
-                <div>
-                  <label className="label">Medio de pago</label>
-                  <select className="input" value={form.medio_pago} onChange={e => setForm(f => ({ ...f, medio_pago: e.target.value }))}>
-                    {MEDIOS_PAGO.map(m => <option key={m} className="capitalize">{m}</option>)}
-                  </select>
-                </div>
-                {!schemaCompatMode && form.medio_pago === 'transferencia' && (
+                {!schemaCompatMode && form.condicion === 'credito' ? (
+                  <div>
+                    <label className="label">Medio de pago</label>
+                    <input className="input bg-gray-100 dark:bg-gray-800" value="A crédito (sin pago inmediato)" readOnly />
+                  </div>
+                ) : (
+                  <div>
+                    <label className="label">Medio de pago</label>
+                    <select className="input" value={form.medio_pago} onChange={e => setForm(f => ({ ...f, medio_pago: e.target.value }))}>
+                      {MEDIOS_PAGO.map(m => <option key={m} className="capitalize">{m}</option>)}
+                    </select>
+                  </div>
+                )}
+                {!schemaCompatMode && form.condicion !== 'credito' && form.medio_pago === 'transferencia' && (
                   <div>
                     <label className="label">N° Transacción</label>
                     <input className="input" placeholder="TRF-00001" value={form.numero_transaccion} onChange={e => setForm(f => ({ ...f, numero_transaccion: e.target.value }))} />
                   </div>
                 )}
-                {!schemaCompatMode && form.medio_pago === 'cheque' && (
+                {!schemaCompatMode && form.condicion !== 'credito' && form.medio_pago === 'cheque' && (
                   <>
                     <div>
                       <label className="label">N° Cheque</label>
