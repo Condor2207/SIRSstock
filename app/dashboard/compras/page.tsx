@@ -34,7 +34,7 @@ export default function ComprasPage() {
   const [productos, setProductos] = useState<Producto[]>([]);
   const [form, setForm] = useState({
     proveedor_id: '', condicion_pago: 'contado' as 'contado' | 'credito',
-    numero_remito: '', notas: '', compra_servicios: '',
+    numero_remito: '', numero_factura: '', notas: '', compra_servicios: '',
     plazo_dias: '', cantidad_cuotas: '1',
   });
   const [items, setItems] = useState<CompraItem[]>([]);
@@ -109,12 +109,15 @@ export default function ComprasPage() {
     if (items.some(i => !i.producto_id)) { toast.error('Todos los líneas deben tener un producto seleccionado'); return; }
     if (items.some(i => i.cantidad <= 0)) { toast.error('La cantidad debe ser mayor a 0 en todos los productos'); return; }
     if (items.some(i => i.precio_unitario <= 0)) { toast.error('El precio unitario debe ser mayor a 0'); return; }
-    const itemsSinVenc = items.filter(i => {
-      const prod = productos.find(p => p.id === i.producto_id);
-      return prod?.control_lote && !i.fecha_vencimiento;
-    });
+    if (!form.numero_factura.trim()) { toast.error('El número de factura es obligatorio'); return; }
+    const itemsSinLote = items.filter(i => !i.numero_lote.trim());
+    if (itemsSinLote.length > 0) {
+      toast.error(`Debés completar número de lote: ${itemsSinLote.map(i => i.producto_nombre).join(', ')}`);
+      return;
+    }
+    const itemsSinVenc = items.filter(i => !i.fecha_vencimiento);
     if (itemsSinVenc.length > 0) {
-      toast.error(`Productos con control de lote requieren fecha de vencimiento: ${itemsSinVenc.map(i => i.producto_nombre).join(', ')}`);
+      toast.error(`Debés completar fecha de vencimiento: ${itemsSinVenc.map(i => i.producto_nombre).join(', ')}`);
       return;
     }
     setSaving(true);
@@ -128,6 +131,7 @@ export default function ComprasPage() {
         proveedor_id: form.proveedor_id || null,
         condicion_pago: form.condicion_pago,
         numero_remito: form.numero_remito || null,
+        numero_factura: form.numero_factura || null,
         subtotal: subtotalItems, total,
         costo_flete: compra_servicios || 0,
         plazo_dias: parseInt(form.plazo_dias) || 0,
@@ -195,7 +199,7 @@ export default function ComprasPage() {
       toast.success(`Compra ${numCompra} registrada exitosamente`);
       setShowModal(false);
       setItems([]);
-      setForm({ proveedor_id: '', condicion_pago: 'contado', numero_remito: '', notas: '', compra_servicios: '', plazo_dias: '', cantidad_cuotas: '1' });
+      setForm({ proveedor_id: '', condicion_pago: 'contado', numero_remito: '', numero_factura: '', notas: '', compra_servicios: '', plazo_dias: '', cantidad_cuotas: '1' });
       load();
     } catch (e: any) {
       toast.error(e.message || 'Error al guardar');
@@ -309,6 +313,10 @@ export default function ComprasPage() {
                   <input className="input" value={form.numero_remito} onChange={e => setForm(f => ({ ...f, numero_remito: e.target.value }))} placeholder="R-0001-00000123" />
                 </div>
                 <div>
+                  <label className="label">N° Factura <span className="text-red-500">*</span></label>
+                  <input className="input" value={form.numero_factura} onChange={e => setForm(f => ({ ...f, numero_factura: e.target.value }))} placeholder="F-001-0000001" />
+                </div>
+                <div>
                   <label className="label">Compra de servicios (Gs.)</label>
                   <input type="number" min="0" step="1" className="input" value={form.compra_servicios} onChange={e => setForm(f => ({ ...f, compra_servicios: e.target.value }))} placeholder="0" />
                 </div>
@@ -342,7 +350,6 @@ export default function ComprasPage() {
                 ) : (
                   <div className="space-y-2">
                     {items.map((item, idx) => {
-                      const prodSelec = productos.find(p => p.id === item.producto_id);
                       return (
                         <div key={idx} className="p-3 bg-gray-50 dark:bg-gray-800 rounded-lg">
                           <div className="grid grid-cols-2 sm:grid-cols-6 gap-2 text-sm items-end">
@@ -360,18 +367,14 @@ export default function ComprasPage() {
                                 </div>
                               )}
                             </div>
-                            {prodSelec?.control_lote && (
-                              <div>
-                                <label className="label text-xs">N° Lote</label>
-                                <input className="input py-1.5" value={item.numero_lote} onChange={e => updateItem(idx, 'numero_lote', e.target.value)} placeholder="L2024-001" />
-                              </div>
-                            )}
-                            {prodSelec?.control_lote && (
-                              <div>
-                                <label className="label text-xs">Vencimiento <span className="text-red-500">*</span></label>
-                                <input type="date" className="input py-1.5" value={item.fecha_vencimiento} onChange={e => updateItem(idx, 'fecha_vencimiento', e.target.value)} required />
-                              </div>
-                            )}
+                            <div>
+                              <label className="label text-xs">N° Lote <span className="text-red-500">*</span></label>
+                              <input className="input py-1.5" value={item.numero_lote} onChange={e => updateItem(idx, 'numero_lote', e.target.value)} placeholder="L2024-001" />
+                            </div>
+                            <div>
+                              <label className="label text-xs">Vencimiento <span className="text-red-500">*</span></label>
+                              <input type="date" className="input py-1.5" value={item.fecha_vencimiento} onChange={e => updateItem(idx, 'fecha_vencimiento', e.target.value)} required />
+                            </div>
                             <div>
                               <label className="label text-xs">Cantidad</label>
                               <input type="number" min="1" step="1" className="input py-1.5" value={item.cantidad} onChange={e => updateItem(idx, 'cantidad', parseFloat(e.target.value) || 0)} />
@@ -435,6 +438,7 @@ export default function ComprasPage() {
                 <div><span className="text-gray-500">Fecha:</span> <strong>{formatDate(detalle.fecha)}</strong></div>
                 <div><span className="text-gray-500">Condición:</span> <span className={`badge ml-1 ${estadoBadgeClass(detalle.condicion_pago)}`}>{detalle.condicion_pago}</span></div>
                 {detalle.numero_remito && <div><span className="text-gray-500">Remito:</span> <strong>{detalle.numero_remito}</strong></div>}
+                {(detalle as any).numero_factura && <div><span className="text-gray-500">Factura:</span> <strong>{(detalle as any).numero_factura}</strong></div>}
               </div>
               <table className="w-full text-sm">
                 <thead className="bg-gray-50 dark:bg-gray-800">

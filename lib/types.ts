@@ -221,6 +221,7 @@ export interface Compra {
   proveedor?: Proveedor;
   condicion_pago: 'contado' | 'credito';
   numero_remito?: string;
+  numero_factura?: string;
   subtotal: number;
   total: number;
   saldo_pendiente: number;
