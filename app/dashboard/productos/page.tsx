@@ -165,6 +165,7 @@ export default function ProductosPage() {
           error = fallback.error;
         }
         if (error) throw error;
+        if (!data?.id) throw new Error('No se pudo obtener el ID del producto creado');
         productoId = data.id;
         toast.success('Producto creado');
       }
