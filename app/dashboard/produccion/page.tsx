@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
+import { logAudit } from '@/lib/audit';
 import { formatDate, formatNumber, estadoBadgeClass } from '@/lib/utils';
 import { Plus, Search, Eye, X, Loader2, Factory, Trash2, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -216,6 +217,7 @@ export default function ProduccionPage() {
       }
 
       toast.success(`Producción ${numProd} ${confirmar ? 'confirmada' : 'guardada como borrador'}`);
+      await logAudit(supabase, { modulo: 'Producción', entidad: 'Producción', accion: confirmar ? 'confirmar' : 'crear', descripcion: `${confirmar ? 'Confirmó' : 'Creó'} la producción ${numProd}`, registroId: prod.id });
       setShowModal(false);
       setItems([]);
       setInsumos([]);
@@ -231,6 +233,7 @@ export default function ProduccionPage() {
   async function confirmarProd(id: string) {
     // Simplificado: cambiar estado a confirmado
     await supabase.from('producciones').update({ estado: 'confirmado' }).eq('id', id);
+    await logAudit(supabase, { modulo: 'Producción', entidad: 'Producción', accion: 'confirmar', descripcion: 'Confirmó una producción', registroId: id });
     toast.success('Producción confirmada');
     load();
   }
@@ -238,6 +241,49 @@ export default function ProduccionPage() {
   async function openDetalle(p: Produccion) {
     const { data } = await supabase.from('producciones').select('*, produccion_items(*, productos(nombre, sku)), produccion_insumos(*, productos(nombre, sku))').eq('id', p.id).single();
     setDetalle(data as Produccion);
+  }
+
+  async function handleDelete(id: string) {
+    if (!window.confirm('¿Eliminar esta producción? Si estaba confirmada, se revertirá el stock.')) return;
+    const { data: prod, error } = await supabase.from('producciones').select('id, numero, estado, produccion_items(producto_id, numero_lote, cantidad), produccion_insumos(producto_id, cantidad)').eq('id', id).single();
+    if (error || !prod) { toast.error(error?.message || 'No se pudo cargar la producción'); return; }
+    if (prod.estado === 'confirmado') {
+      const productQty = ((prod as any).produccion_items || []).reduce((acc: Record<string, number>, item: any) => {
+        acc[item.producto_id] = (acc[item.producto_id] || 0) + item.cantidad;
+        return acc;
+      }, {});
+      for (const [productoId, cantidad] of Object.entries(productQty) as Array<[string, number]>) {
+        const { data: producto } = await supabase.from('productos').select('stock_actual').eq('id', productoId).single();
+        if ((producto?.stock_actual || 0) < cantidad) {
+          toast.error('No se puede eliminar la producción porque el stock generado ya fue consumido');
+          return;
+        }
+      }
+      for (const [productoId, cantidad] of Object.entries(productQty) as Array<[string, number]>) {
+        const { data: producto } = await supabase.from('productos').select('stock_actual').eq('id', productoId).single();
+        if (producto) await supabase.from('productos').update({ stock_actual: Math.max(0, producto.stock_actual - cantidad) }).eq('id', productoId);
+      }
+      const lotQty = ((prod as any).produccion_items || []).reduce((acc: Record<string, { productoId: string; numeroLote: string; cantidad: number }>, item: any) => {
+        if (!item.numero_lote) return acc;
+        const key = `${item.producto_id}::${item.numero_lote}`;
+        acc[key] = acc[key] || { productoId: item.producto_id, numeroLote: item.numero_lote, cantidad: 0 };
+        acc[key].cantidad += item.cantidad;
+        return acc;
+      }, {});
+      for (const item of Object.values(lotQty) as Array<{ productoId: string; numeroLote: string; cantidad: number }>) {
+        const { data: lote } = await supabase.from('lotes').select('id, stock_actual').eq('producto_id', item.productoId).eq('numero_lote', item.numeroLote).single();
+        if (lote) await supabase.from('lotes').update({ stock_actual: Math.max(0, lote.stock_actual - item.cantidad) }).eq('id', lote.id);
+      }
+      for (const insumo of (prod as any).produccion_insumos || []) {
+        const { data: producto } = await supabase.from('productos').select('stock_actual').eq('id', insumo.producto_id).single();
+        if (producto) await supabase.from('productos').update({ stock_actual: producto.stock_actual + insumo.cantidad }).eq('id', insumo.producto_id);
+      }
+    }
+    const { error: deleteError } = await supabase.from('producciones').delete().eq('id', id);
+    if (deleteError) { toast.error(deleteError.message || 'No se pudo eliminar la producción'); return; }
+    await logAudit(supabase, { modulo: 'Producción', entidad: 'Producción', accion: 'borrar', descripcion: `Eliminó la producción ${prod.numero}`, registroId: id });
+    toast.success('Producción eliminada');
+    load();
   }
 
   return (
@@ -302,6 +348,9 @@ export default function ProduccionPage() {
                               <CheckCircle className="w-4 h-4" />
                             </button>
                           )}
+                          <button onClick={() => handleDelete(p.id)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500" title="Eliminar">
+                            <Trash2 className="w-4 h-4" />
+                          </button>
                         </div>
                       </td>
                     </tr>

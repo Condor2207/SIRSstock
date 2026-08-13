@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
-import { Plus, Edit2, X, Loader2, Check } from 'lucide-react';
+import { logAudit } from '@/lib/audit';
+import { Plus, Edit2, Trash2, X, Loader2, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Banco } from '@/lib/types';
 
@@ -14,31 +15,41 @@ export default function BancosPage() {
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando] = useState<Banco | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ nombre: '', activo: true });
+  const [form, setForm] = useState({ nombre: '' });
 
   const load = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase.from('bancos').select('*').order('nombre');
     setItems(data as Banco[] || []);
     setLoading(false);
-  }, []);
+  }, [supabase]);
 
   useEffect(() => { load(); }, [load]);
 
-  function openNew() { setEditando(null); setForm({ nombre: '', activo: true }); setShowModal(true); }
-  function openEdit(b: Banco) { setEditando(b); setForm({ nombre: b.nombre, activo: b.activo }); setShowModal(true); }
+  function openNew() { setEditando(null); setForm({ nombre: '' }); setShowModal(true); }
+  function openEdit(b: Banco) { setEditando(b); setForm({ nombre: b.nombre }); setShowModal(true); }
 
   async function handleSave() {
     if (!form.nombre) { toast.error('El nombre es obligatorio'); return; }
     setSaving(true);
-    const payload = { nombre: form.nombre.trim(), activo: form.activo };
-    const { error } = editando
-      ? await supabase.from('bancos').update(payload).eq('id', editando.id)
-      : await supabase.from('bancos').insert(payload);
+    const payload = { nombre: form.nombre.trim() };
+    const { data, error } = editando
+      ? await supabase.from('bancos').update(payload).eq('id', editando.id).select('id').single()
+      : await supabase.from('bancos').insert(payload).select('id').single();
     setSaving(false);
     if (error) { toast.error(error.message); return; }
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Banco', accion: editando ? 'editar' : 'crear', descripcion: `${editando ? 'Editó' : 'Creó'} el banco ${payload.nombre}`, registroId: data?.id || editando?.id || null });
     toast.success(editando ? 'Actualizado' : 'Creado');
     setShowModal(false);
+    load();
+  }
+
+  async function handleDelete(item: Banco) {
+    if (!window.confirm(`¿Eliminar el banco "${item.nombre}"?`)) return;
+    const { error } = await supabase.from('bancos').delete().eq('id', item.id);
+    if (error) { toast.error(error.message); return; }
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Banco', accion: 'borrar', descripcion: `Eliminó el banco ${item.nombre}`, registroId: item.id });
+    toast.success('Banco eliminado');
     load();
   }
 
@@ -53,15 +64,15 @@ export default function BancosPage() {
         <div className="card overflow-x-auto">
           {loading ? <div className="flex justify-center p-8"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div> : (
             <table className="w-full text-sm">
-              <thead><tr><th className="table-header">Banco</th><th className="table-header">Estado</th><th className="table-header text-right">Acciones</th></tr></thead>
+              <thead><tr><th className="table-header">Banco</th><th className="table-header text-right">Acciones</th></tr></thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {items.map(b => (
                   <tr key={b.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                     <td className="table-cell font-medium">{b.nombre}</td>
-                    <td className="table-cell">
-                      {b.activo ? <span className="badge bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">Activo</span> : <span className="badge bg-gray-100 text-gray-500">Inactivo</span>}
+                    <td className="table-cell text-right">
+                      <button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(b)}><Edit2 className="w-4 h-4" /></button>
+                      <button className="text-red-500 hover:text-red-700 p-1" onClick={() => handleDelete(b)}><Trash2 className="w-4 h-4" /></button>
                     </td>
-                    <td className="table-cell text-right"><button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(b)}><Edit2 className="w-4 h-4" /></button></td>
                   </tr>
                 ))}
               </tbody>
@@ -79,10 +90,6 @@ export default function BancosPage() {
             </div>
             <div className="space-y-4">
               <div><label className="label">Nombre del banco *</label><input className="input" value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))} placeholder="Banco Familiar" /></div>
-              <div className="flex items-center gap-2">
-                <input type="checkbox" id="activo_b" checked={form.activo} onChange={e => setForm(p => ({ ...p, activo: e.target.checked }))} />
-                <label htmlFor="activo_b" className="text-sm text-gray-700 dark:text-gray-300">Activo</label>
-              </div>
             </div>
             <div className="flex gap-3 mt-6">
               <button className="btn-secondary flex-1" onClick={() => setShowModal(false)}>Cancelar</button>

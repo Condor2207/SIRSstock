@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
-import { Plus, Edit2, X, Loader2, Check, ChevronRight } from 'lucide-react';
+import { logAudit } from '@/lib/audit';
+import { Plus, Edit2, Trash2, X, Loader2, Check, ChevronRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Marca, Linea, Grupo } from '@/lib/types';
 
@@ -49,29 +50,50 @@ export default function MarcasPage() {
     if (!formNombre.trim()) { toast.error('El nombre es obligatorio'); return; }
     setSaving(true);
     let error: any = null;
+    let recordId: string | null = editando?.id || null;
     const nombre = formNombre.trim().toUpperCase();
 
     if (modal === 'marca') {
-      const { error: e } = editando
-        ? await supabase.from('marcas').update({ nombre }).eq('id', editando.id)
-        : await supabase.from('marcas').insert({ nombre });
+      const { data, error: e } = editando
+        ? await supabase.from('marcas').update({ nombre }).eq('id', editando.id).select('id').single()
+        : await supabase.from('marcas').insert({ nombre }).select('id').single();
       error = e;
+      recordId = data?.id || recordId;
     } else if (modal === 'linea') {
-      const { error: e } = editando
-        ? await supabase.from('lineas').update({ nombre }).eq('id', editando.id)
-        : await supabase.from('lineas').insert({ nombre, marca_id: selectedMarca?.id });
+      const { data, error: e } = editando
+        ? await supabase.from('lineas').update({ nombre }).eq('id', editando.id).select('id').single()
+        : await supabase.from('lineas').insert({ nombre, marca_id: selectedMarca?.id }).select('id').single();
       error = e;
+      recordId = data?.id || recordId;
     } else if (modal === 'grupo') {
-      const { error: e } = editando
-        ? await supabase.from('grupos').update({ nombre }).eq('id', editando.id)
-        : await supabase.from('grupos').insert({ nombre, linea_id: selectedLinea?.id });
+      const { data, error: e } = editando
+        ? await supabase.from('grupos').update({ nombre }).eq('id', editando.id).select('id').single()
+        : await supabase.from('grupos').insert({ nombre, linea_id: selectedLinea?.id }).select('id').single();
       error = e;
+      recordId = data?.id || recordId;
     }
 
     setSaving(false);
     if (error) { toast.error(error.message); return; }
     toast.success(editando ? 'Actualizado' : 'Creado');
+    await logAudit(supabase, {
+      modulo: 'Configuración',
+      entidad: modal === 'marca' ? 'Marca' : modal === 'linea' ? 'Línea' : 'Grupo',
+      accion: editando ? 'editar' : 'crear',
+      descripcion: `${editando ? 'Editó' : 'Creó'} ${modal === 'marca' ? 'la marca' : modal === 'linea' ? 'la línea' : 'el grupo'} ${nombre}`,
+      registroId: recordId,
+    });
     setModal(null);
+    load();
+  }
+
+  async function handleDelete(tipo: 'marca' | 'linea' | 'grupo', item: Marca | Linea | Grupo) {
+    if (!window.confirm(`¿Eliminar ${tipo === 'marca' ? 'la marca' : tipo === 'linea' ? 'la línea' : 'el grupo'} "${item.nombre}"?`)) return;
+    const table = tipo === 'marca' ? 'marcas' : tipo === 'linea' ? 'lineas' : 'grupos';
+    const { error } = await supabase.from(table).delete().eq('id', item.id);
+    if (error) { toast.error(error.message); return; }
+    await logAudit(supabase, { modulo: 'Configuración', entidad: tipo === 'marca' ? 'Marca' : tipo === 'linea' ? 'Línea' : 'Grupo', accion: 'borrar', descripcion: `Eliminó ${tipo === 'grupo' ? 'el grupo' : tipo === 'linea' ? 'la línea' : 'la marca'} ${item.nombre}`, registroId: item.id });
+    toast.success('Registro eliminado');
     load();
   }
 
@@ -98,6 +120,7 @@ export default function MarcasPage() {
                   <span className="text-sm font-medium">{m.nombre}</span>
                   <div className="flex items-center gap-1">
                     <button className="text-blue-400 hover:text-blue-600 p-0.5" onClick={e => { e.stopPropagation(); openModal('marca', m); }}><Edit2 className="w-3 h-3" /></button>
+                    <button className="text-red-400 hover:text-red-600 p-0.5" onClick={e => { e.stopPropagation(); handleDelete('marca', m); }}><Trash2 className="w-3 h-3" /></button>
                     <ChevronRight className="w-3 h-3 text-gray-400" />
                   </div>
                 </div>
@@ -127,6 +150,7 @@ export default function MarcasPage() {
                     <span className="text-sm font-medium">{l.nombre}</span>
                     <div className="flex items-center gap-1">
                       <button className="text-blue-400 hover:text-blue-600 p-0.5" onClick={e => { e.stopPropagation(); openModal('linea', l); }}><Edit2 className="w-3 h-3" /></button>
+                      <button className="text-red-400 hover:text-red-600 p-0.5" onClick={e => { e.stopPropagation(); handleDelete('linea', l); }}><Trash2 className="w-3 h-3" /></button>
                       <ChevronRight className="w-3 h-3 text-gray-400" />
                     </div>
                   </div>
@@ -153,7 +177,10 @@ export default function MarcasPage() {
                 {gruposDeLinea.map(g => (
                   <div key={g.id} className="flex items-center justify-between px-3 py-2 rounded-lg hover:bg-gray-50 dark:hover:bg-gray-800">
                     <span className="text-sm font-medium">{g.nombre}</span>
-                    <button className="text-blue-400 hover:text-blue-600 p-0.5" onClick={() => openModal('grupo', g)}><Edit2 className="w-3 h-3" /></button>
+                    <div className="flex items-center gap-1">
+                      <button className="text-blue-400 hover:text-blue-600 p-0.5" onClick={() => openModal('grupo', g)}><Edit2 className="w-3 h-3" /></button>
+                      <button className="text-red-400 hover:text-red-600 p-0.5" onClick={() => handleDelete('grupo', g)}><Trash2 className="w-3 h-3" /></button>
+                    </div>
                   </div>
                 ))}
                 {gruposDeLinea.length === 0 && <p className="text-xs text-gray-400 text-center py-3">Sin grupos</p>}

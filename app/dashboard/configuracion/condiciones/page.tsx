@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
-import { Plus, Edit2, X, Loader2, Check } from 'lucide-react';
+import { logAudit } from '@/lib/audit';
+import { Plus, Edit2, Trash2, X, Loader2, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { CondicionVenta } from '@/lib/types';
 
@@ -14,31 +15,41 @@ export default function CondicionesPage() {
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando] = useState<CondicionVenta | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ nombre: '', plazo_dias: 0, cantidad_cuotas: 1, activo: true });
+  const [form, setForm] = useState({ nombre: '', plazo_dias: 0, cantidad_cuotas: 1 });
 
   const load = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase.from('condiciones_venta').select('*').order('plazo_dias');
     setItems(data as CondicionVenta[] || []);
     setLoading(false);
-  }, []);
+  }, [supabase]);
 
   useEffect(() => { load(); }, [load]);
 
-  function openNew() { setEditando(null); setForm({ nombre: '', plazo_dias: 0, cantidad_cuotas: 1, activo: true }); setShowModal(true); }
-  function openEdit(c: CondicionVenta) { setEditando(c); setForm({ nombre: c.nombre, plazo_dias: c.plazo_dias, cantidad_cuotas: c.cantidad_cuotas, activo: c.activo }); setShowModal(true); }
+  function openNew() { setEditando(null); setForm({ nombre: '', plazo_dias: 0, cantidad_cuotas: 1 }); setShowModal(true); }
+  function openEdit(c: CondicionVenta) { setEditando(c); setForm({ nombre: c.nombre, plazo_dias: c.plazo_dias, cantidad_cuotas: c.cantidad_cuotas }); setShowModal(true); }
 
   async function handleSave() {
     if (!form.nombre) { toast.error('El nombre es obligatorio'); return; }
     setSaving(true);
-    const payload = { nombre: form.nombre.trim(), plazo_dias: Number(form.plazo_dias), cantidad_cuotas: Number(form.cantidad_cuotas), activo: form.activo };
-    const { error } = editando
-      ? await supabase.from('condiciones_venta').update(payload).eq('id', editando.id)
-      : await supabase.from('condiciones_venta').insert(payload);
+    const payload = { nombre: form.nombre.trim(), plazo_dias: Number(form.plazo_dias), cantidad_cuotas: Number(form.cantidad_cuotas) };
+    const { data, error } = editando
+      ? await supabase.from('condiciones_venta').update(payload).eq('id', editando.id).select('id').single()
+      : await supabase.from('condiciones_venta').insert(payload).select('id').single();
     setSaving(false);
     if (error) { toast.error(error.message); return; }
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Condición de venta', accion: editando ? 'editar' : 'crear', descripcion: `${editando ? 'Editó' : 'Creó'} la condición ${payload.nombre}`, registroId: data?.id || editando?.id || null });
     toast.success(editando ? 'Actualizado' : 'Creado');
     setShowModal(false);
+    load();
+  }
+
+  async function handleDelete(item: CondicionVenta) {
+    if (!window.confirm(`¿Eliminar la condición "${item.nombre}"?`)) return;
+    const { error } = await supabase.from('condiciones_venta').delete().eq('id', item.id);
+    if (error) { toast.error(error.message); return; }
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Condición de venta', accion: 'borrar', descripcion: `Eliminó la condición ${item.nombre}`, registroId: item.id });
+    toast.success('Condición eliminada');
     load();
   }
 
@@ -53,17 +64,17 @@ export default function CondicionesPage() {
         <div className="card overflow-x-auto">
           {loading ? <div className="flex justify-center p-8"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div> : (
             <table className="w-full text-sm">
-              <thead><tr><th className="table-header">Nombre</th><th className="table-header">Plazo (días)</th><th className="table-header">N° Cuotas</th><th className="table-header">Estado</th><th className="table-header text-right">Acciones</th></tr></thead>
+              <thead><tr><th className="table-header">Nombre</th><th className="table-header">Plazo (días)</th><th className="table-header">N° Cuotas</th><th className="table-header text-right">Acciones</th></tr></thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {items.map(c => (
                   <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
                     <td className="table-cell font-medium">{c.nombre}</td>
                     <td className="table-cell">{c.plazo_dias === 0 ? <span className="text-emerald-600 font-medium">Contado</span> : `${c.plazo_dias} días`}</td>
                     <td className="table-cell">{c.cantidad_cuotas}</td>
-                    <td className="table-cell">
-                      {c.activo ? <span className="badge bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">Activo</span> : <span className="badge bg-gray-100 text-gray-500">Inactivo</span>}
+                    <td className="table-cell text-right">
+                      <button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(c)}><Edit2 className="w-4 h-4" /></button>
+                      <button className="text-red-500 hover:text-red-700 p-1" onClick={() => handleDelete(c)}><Trash2 className="w-4 h-4" /></button>
                     </td>
-                    <td className="table-cell text-right"><button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(c)}><Edit2 className="w-4 h-4" /></button></td>
                   </tr>
                 ))}
               </tbody>
@@ -83,10 +94,6 @@ export default function CondicionesPage() {
               <div><label className="label">Nombre *</label><input className="input" value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))} placeholder="30 días" /></div>
               <div><label className="label">Plazo en días (0 = contado)</label><input className="input" type="number" min="0" value={form.plazo_dias} onChange={e => setForm(p => ({ ...p, plazo_dias: parseInt(e.target.value) || 0 }))} /></div>
               <div><label className="label">Cantidad de cuotas</label><input className="input" type="number" min="1" value={form.cantidad_cuotas} onChange={e => setForm(p => ({ ...p, cantidad_cuotas: parseInt(e.target.value) || 1 }))} /></div>
-              <div className="flex items-center gap-2">
-                <input type="checkbox" id="activo_c" checked={form.activo} onChange={e => setForm(p => ({ ...p, activo: e.target.checked }))} />
-                <label htmlFor="activo_c" className="text-sm text-gray-700 dark:text-gray-300">Activo</label>
-              </div>
             </div>
             <div className="flex gap-3 mt-6">
               <button className="btn-secondary flex-1" onClick={() => setShowModal(false)}>Cancelar</button>

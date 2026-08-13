@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
+import { logAudit } from '@/lib/audit';
 import { formatCurrency, formatDate } from '@/lib/utils';
 import { Search, Loader2, BadgePercent, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -40,6 +41,7 @@ export default function ComisionesPage() {
   async function marcarPagada(id: string) {
     const { error } = await supabase.from('comisiones').update({ estado: 'pagada', fecha_pago: new Date().toISOString().split('T')[0] }).eq('id', id);
     if (error) { toast.error(error.message || 'Error al actualizar la comisión'); return; }
+    await logAudit(supabase, { modulo: 'Comisiones', entidad: 'Comisión', accion: 'pagar', descripcion: 'Marcó una comisión como pagada', registroId: id });
     toast.success('Comisión marcada como pagada');
     load();
   }
@@ -49,6 +51,7 @@ export default function ComisionesPage() {
     if (pendientes.length === 0) { toast.error('No hay comisiones pendientes en la selección actual'); return; }
     const { error } = await supabase.from('comisiones').update({ estado: 'pagada', fecha_pago: new Date().toISOString().split('T')[0] }).in('id', pendientes);
     if (error) { toast.error(error.message || 'Error al actualizar las comisiones'); return; }
+    await logAudit(supabase, { modulo: 'Comisiones', entidad: 'Comisión', accion: 'pagar', descripcion: `Marcó ${pendientes.length} comisiones como pagadas` });
     toast.success(`${pendientes.length} comisiones marcadas como pagadas`);
     load();
   }

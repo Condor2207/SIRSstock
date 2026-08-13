@@ -8,6 +8,7 @@ import {
   LayoutDashboard, Package, Boxes, ShoppingCart, Users, Truck,
   CreditCard, Receipt, Factory, BarChart3, Leaf, ChevronLeft,
   ChevronRight, FileSpreadsheet, Settings2, BadgePercent,
+  ScrollText,
   Handshake, X,
 } from 'lucide-react';
 import { useState } from 'react';
@@ -47,6 +48,7 @@ const navSections: NavSection[] = [
     label: 'Sistema',
     items: [
       { href: '/dashboard/configuracion', icon: Settings2, label: 'Configuración' },
+      { href: '/dashboard/auditoria', icon: ScrollText, label: 'Auditoría' },
     ],
   },
 ];

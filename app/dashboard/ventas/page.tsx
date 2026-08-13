@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
+import { logAudit } from '@/lib/audit';
 import { formatCurrency, formatDateTime, estadoBadgeClass } from '@/lib/utils';
-import { Plus, Search, Eye, X, Loader2, ShoppingCart } from 'lucide-react';
+import { Plus, Search, Eye, Trash2, X, Loader2, ShoppingCart } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import type { Venta } from '@/lib/types';
@@ -49,6 +50,19 @@ export default function VentasPage() {
     setShowAnularModal(true);
   }
 
+  function agruparItemsStock(items: Array<{ producto_id: string; lote_id?: string | null; cantidad: number }>) {
+    const porProducto = items.reduce((acc: Record<string, number>, item) => {
+      acc[item.producto_id] = (acc[item.producto_id] || 0) + item.cantidad;
+      return acc;
+    }, {});
+    const porLote = items.reduce((acc: Record<string, number>, item) => {
+      if (!item.lote_id) return acc;
+      acc[item.lote_id] = (acc[item.lote_id] || 0) + item.cantidad;
+      return acc;
+    }, {});
+    return { porProducto, porLote };
+  }
+
   async function confirmarAnulacion() {
     if (!ventaAnulando || !motivoAnulacion.trim()) return;
     const { data: ventaData } = await supabase
@@ -57,13 +71,16 @@ export default function VentasPage() {
       .eq('id', ventaAnulando)
       .single();
     if (ventaData) {
+      const { porProducto, porLote } = agruparItemsStock((ventaData.venta_items || []) as Array<{ producto_id: string; lote_id?: string | null; cantidad: number }>);
+      for (const [productoId, cantidad] of Object.entries(porProducto) as Array<[string, number]>) {
+        const { data: prod } = await supabase.from('productos').select('stock_actual').eq('id', productoId).single();
+        if (prod) await supabase.from('productos').update({ stock_actual: prod.stock_actual + cantidad }).eq('id', productoId);
+      }
+      for (const [loteId, cantidad] of Object.entries(porLote) as Array<[string, number]>) {
+        const { data: lote } = await supabase.from('lotes').select('stock_actual').eq('id', loteId).single();
+        if (lote) await supabase.from('lotes').update({ stock_actual: lote.stock_actual + cantidad }).eq('id', loteId);
+      }
       for (const item of (ventaData.venta_items || [])) {
-        const { data: prod } = await supabase.from('productos').select('stock_actual').eq('id', item.producto_id).single();
-        if (prod) await supabase.from('productos').update({ stock_actual: prod.stock_actual + item.cantidad }).eq('id', item.producto_id);
-        if (item.lote_id) {
-          const { data: lote } = await supabase.from('lotes').select('stock_actual').eq('id', item.lote_id).single();
-          if (lote) await supabase.from('lotes').update({ stock_actual: lote.stock_actual + item.cantidad }).eq('id', item.lote_id);
-        }
         await supabase.from('movimientos_stock').insert({
           producto_id: item.producto_id, lote_id: item.lote_id || null,
           tipo: 'devolucion', cantidad: item.cantidad,
@@ -76,6 +93,7 @@ export default function VentasPage() {
       }
     }
     await supabase.from('ventas').update({ estado: 'anulado', motivo_anulacion: motivoAnulacion }).eq('id', ventaAnulando);
+    await logAudit(supabase, { modulo: 'Ventas', entidad: 'Venta', accion: 'anular', descripcion: `Anuló la venta ${ventaData?.numero || ventaAnulando}`, registroId: ventaAnulando });
     setShowAnularModal(false);
     setVentaAnulando(null);
     loadVentas();
@@ -100,6 +118,7 @@ export default function VentasPage() {
           if (cliUpdateErr) throw cliUpdateErr;
         }
       }
+      await logAudit(supabase, { modulo: 'Ventas', entidad: 'Pago de venta', accion: 'pagar', descripcion: `Registró un pago para la venta ${venta?.numero || ventaId}`, registroId: ventaId });
       toast.success('Pago registrado');
       loadVentas();
       setDetalle(null);
@@ -108,6 +127,34 @@ export default function VentasPage() {
     }
   }
 
+  async function handleDelete(ventaId: string) {
+    if (!window.confirm('¿Eliminar esta venta? Solo se permite cuando no tiene pagos ni cobros asociados.')) return;
+    const { data: ventaData, error } = await supabase
+      .from('ventas')
+      .select('id, numero, cliente_id, condicion_pago, saldo_pendiente, estado, venta_items(producto_id, lote_id, cantidad), venta_pagos(id), cobro_facturas(id), comisiones(id)')
+      .eq('id', ventaId)
+      .single();
+    if (error || !ventaData) { toast.error(error?.message || 'No se pudo cargar la venta'); return; }
+    if (ventaData.estado !== 'anulado') {
+      toast.error('Solo se pueden borrar ventas anuladas');
+      return;
+    }
+    if ((ventaData as any).venta_pagos?.length || (ventaData as any).cobro_facturas?.length || (ventaData as any).comisiones?.length) {
+      toast.error('La venta tiene pagos, cobros o comisiones asociadas y no puede eliminarse');
+      return;
+    }
+    if (ventaData.condicion_pago === 'credito' && ventaData.saldo_pendiente > 0) {
+      const { data: cliente } = await supabase.from('clientes').select('saldo_pendiente').eq('id', ventaData.cliente_id).single();
+      if (cliente) {
+        await supabase.from('clientes').update({ saldo_pendiente: Math.max(0, cliente.saldo_pendiente - ventaData.saldo_pendiente) }).eq('id', ventaData.cliente_id);
+      }
+    }
+    const { error: deleteError } = await supabase.from('ventas').delete().eq('id', ventaId);
+    if (deleteError) { toast.error(deleteError.message || 'No se pudo eliminar la venta'); return; }
+    await logAudit(supabase, { modulo: 'Ventas', entidad: 'Venta', accion: 'borrar', descripcion: `Eliminó la venta ${ventaData.numero}`, registroId: ventaId });
+    toast.success('Venta eliminada');
+    loadVentas();
+  }
   const filteredRaw = ventas.filter(v => {
     const term = search.toLowerCase();
     const matchSearch = v.numero?.toLowerCase().includes(term) || (v as any).clientes?.nombre?.toLowerCase().includes(term);
@@ -194,6 +241,11 @@ export default function VentasPage() {
                           {v.estado !== 'anulado' && (
                             <button onClick={() => pedirMotivoAnulacion(v.id)} className="p-1.5 rounded hover:bg-red-50 dark:hover:bg-red-900/20 text-gray-500 hover:text-red-600 text-xs" title="Anular">
                               <X className="w-4 h-4" />
+                            </button>
+                          )}
+                          {v.estado === 'anulado' && (
+                            <button onClick={() => handleDelete(v.id)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500" title="Eliminar">
+                              <Trash2 className="w-4 h-4" />
                             </button>
                           )}
                         </div>

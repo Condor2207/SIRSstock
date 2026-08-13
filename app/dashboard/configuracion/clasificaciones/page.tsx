@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
-import { Plus, Edit2, X, Loader2, Check } from 'lucide-react';
+import { logAudit } from '@/lib/audit';
+import { Plus, Edit2, Trash2, X, Loader2, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Clasificacion } from '@/lib/types';
 
@@ -14,39 +15,49 @@ export default function ClasificacionesPage() {
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando] = useState<Clasificacion | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ nombre: '', aparece_en_factura: true, tiene_stock: true, usa_en_produccion: false, activo: true });
+  const [form, setForm] = useState({ nombre: '', aparece_en_factura: true, tiene_stock: true, usa_en_produccion: false });
 
   const load = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase.from('clasificaciones').select('*').order('nombre');
     setItems(data as Clasificacion[] || []);
     setLoading(false);
-  }, []);
+  }, [supabase]);
 
   useEffect(() => { load(); }, [load]);
 
   function openNew() {
     setEditando(null);
-    setForm({ nombre: '', aparece_en_factura: true, tiene_stock: true, usa_en_produccion: false, activo: true });
+    setForm({ nombre: '', aparece_en_factura: true, tiene_stock: true, usa_en_produccion: false });
     setShowModal(true);
   }
   function openEdit(c: Clasificacion) {
     setEditando(c);
-    setForm({ nombre: c.nombre, aparece_en_factura: c.aparece_en_factura, tiene_stock: c.tiene_stock, usa_en_produccion: c.usa_en_produccion, activo: c.activo });
+    setForm({ nombre: c.nombre, aparece_en_factura: c.aparece_en_factura, tiene_stock: c.tiene_stock, usa_en_produccion: c.usa_en_produccion });
     setShowModal(true);
   }
 
   async function handleSave() {
     if (!form.nombre) { toast.error('El nombre es obligatorio'); return; }
     setSaving(true);
-    const payload = { nombre: form.nombre.trim(), aparece_en_factura: form.aparece_en_factura, tiene_stock: form.tiene_stock, usa_en_produccion: form.usa_en_produccion, activo: form.activo };
-    const { error } = editando
-      ? await supabase.from('clasificaciones').update(payload).eq('id', editando.id)
-      : await supabase.from('clasificaciones').insert(payload);
+    const payload = { nombre: form.nombre.trim(), aparece_en_factura: form.aparece_en_factura, tiene_stock: form.tiene_stock, usa_en_produccion: form.usa_en_produccion };
+    const { data, error } = editando
+      ? await supabase.from('clasificaciones').update(payload).eq('id', editando.id).select('id').single()
+      : await supabase.from('clasificaciones').insert(payload).select('id').single();
     setSaving(false);
     if (error) { toast.error(error.message); return; }
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Clasificación', accion: editando ? 'editar' : 'crear', descripcion: `${editando ? 'Editó' : 'Creó'} la clasificación ${payload.nombre}`, registroId: data?.id || editando?.id || null });
     toast.success(editando ? 'Actualizado' : 'Creado');
     setShowModal(false);
+    load();
+  }
+
+  async function handleDelete(item: Clasificacion) {
+    if (!window.confirm(`¿Eliminar la clasificación "${item.nombre}"?`)) return;
+    const { error } = await supabase.from('clasificaciones').delete().eq('id', item.id);
+    if (error) { toast.error(error.message); return; }
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Clasificación', accion: 'borrar', descripcion: `Eliminó la clasificación ${item.nombre}`, registroId: item.id });
+    toast.success('Clasificación eliminada');
     load();
   }
 
@@ -69,7 +80,6 @@ export default function ClasificacionesPage() {
                   <th className="table-header text-center">Factura</th>
                   <th className="table-header text-center">Stock</th>
                   <th className="table-header text-center">Producción</th>
-                  <th className="table-header text-center">Estado</th>
                   <th className="table-header text-right">Acciones</th>
                 </tr>
               </thead>
@@ -80,12 +90,9 @@ export default function ClasificacionesPage() {
                     <td className="table-cell text-center">{c.aparece_en_factura ? '✅' : '—'}</td>
                     <td className="table-cell text-center">{c.tiene_stock ? '✅' : '—'}</td>
                     <td className="table-cell text-center">{c.usa_en_produccion ? '✅' : '—'}</td>
-                    <td className="table-cell text-center">
-                      {c.activo ? <span className="badge bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">Activo</span>
-                        : <span className="badge bg-gray-100 text-gray-500">Inactivo</span>}
-                    </td>
                     <td className="table-cell text-right">
                       <button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(c)}><Edit2 className="w-4 h-4" /></button>
+                      <button className="text-red-500 hover:text-red-700 p-1" onClick={() => handleDelete(c)}><Trash2 className="w-4 h-4" /></button>
                     </td>
                   </tr>
                 ))}
@@ -118,10 +125,6 @@ export default function ClasificacionesPage() {
                     <label htmlFor={key} className="text-sm text-gray-700 dark:text-gray-300">{label}</label>
                   </div>
                 ))}
-                <div className="flex items-center gap-2">
-                  <input type="checkbox" id="activo_cl" checked={form.activo} onChange={e => setForm(p => ({ ...p, activo: e.target.checked }))} />
-                  <label htmlFor="activo_cl" className="text-sm text-gray-700 dark:text-gray-300">Activo</label>
-                </div>
               </div>
             </div>
             <div className="flex gap-3 mt-6">

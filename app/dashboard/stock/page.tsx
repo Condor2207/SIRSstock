@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
+import { logAudit } from '@/lib/audit';
 import { formatDate, estadoVencimiento, formatNumber } from '@/lib/utils';
 import { Search, Plus, Boxes, AlertTriangle, X, Loader2, Filter } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -118,6 +119,13 @@ export default function StockPage() {
         }
       }
 
+      const producto = productos.find(p => p.id === ajusteForm.producto_id);
+      await logAudit(supabase, {
+        modulo: 'Stock',
+        entidad: 'Ajuste de stock',
+        accion: 'ajustar',
+        descripcion: `${ajusteForm.tipo === 'salida' ? 'Registró salida' : 'Registró entrada'} de ${cant} en ${producto ? `${producto.sku} - ${producto.nombre}` : ajusteForm.producto_id}`,
+      });
       toast.success('Ajuste de stock registrado');
       setShowAjuste(false);
       setAjusteForm({ producto_id: '', lote_id: '', cantidad: '', tipo: 'entrada', notas: '' });

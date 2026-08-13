@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
+import { logAudit } from '@/lib/audit';
 import { formatCurrency, porcentajeCredito } from '@/lib/utils';
-import { Plus, Search, Edit2, Users, X, Loader2, AlertTriangle } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, Users, X, Loader2, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Cliente, ListaPrecios, Vendedor, CondicionVenta } from '@/lib/types';
 import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
@@ -23,7 +24,7 @@ export default function ClientesPage() {
   const [form, setForm] = useState({
     nombre: '', documento: '', tipo_documento: 'RUC',
     direccion: '', telefono: '', email: '',
-    limite_credito: '', activo: true,
+    limite_credito: '',
     lista_precios_id: '', vendedor_id: '',
     condicion_venta_id: '', es_exterior: false,
   });
@@ -47,7 +48,7 @@ export default function ClientesPage() {
 
   function openNew() {
     setEditando(null);
-    setForm({ nombre: '', documento: '', tipo_documento: 'RUC', direccion: '', telefono: '', email: '', limite_credito: '', activo: true, lista_precios_id: '', vendedor_id: '', condicion_venta_id: '', es_exterior: false });
+    setForm({ nombre: '', documento: '', tipo_documento: 'RUC', direccion: '', telefono: '', email: '', limite_credito: '', lista_precios_id: '', vendedor_id: '', condicion_venta_id: '', es_exterior: false });
     setShowModal(true);
   }
 
@@ -56,7 +57,7 @@ export default function ClientesPage() {
     setForm({
       nombre: c.nombre, documento: c.documento || '', tipo_documento: c.tipo_documento,
       direccion: c.direccion || '', telefono: c.telefono || '', email: c.email || '',
-      limite_credito: String(c.limite_credito), activo: c.activo,
+      limite_credito: String(c.limite_credito),
       lista_precios_id: (c as any).lista_precios_id || '',
       vendedor_id: (c as any).vendedor_id || '',
       condicion_venta_id: (c as any).condicion_venta_id || '',
@@ -89,7 +90,7 @@ export default function ClientesPage() {
       nombre, documento,
       tipo_documento: form.tipo_documento, direccion: form.direccion.trim() || null,
       telefono: telefono || null, email: email || null,
-      limite_credito: parseFloat(form.limite_credito) || 0, activo: form.activo,
+      limite_credito: parseFloat(form.limite_credito) || 0,
       lista_precios_id: form.lista_precios_id || null,
       vendedor_id: form.vendedor_id || null,
       condicion_venta_id: form.condicion_venta_id || null,
@@ -99,10 +100,12 @@ export default function ClientesPage() {
       if (editando) {
         const { error } = await supabase.from('clientes').update(payload).eq('id', editando.id);
         if (error) throw error;
+        await logAudit(supabase, { modulo: 'Clientes', entidad: 'Cliente', accion: 'editar', descripcion: `Editó el cliente ${nombre}`, registroId: editando.id });
         toast.success('Cliente actualizado');
       } else {
-        const { error } = await supabase.from('clientes').insert({ ...payload, saldo_pendiente: 0 });
+        const { data, error } = await supabase.from('clientes').insert({ ...payload, saldo_pendiente: 0 }).select('id').single();
         if (error) throw error;
+        await logAudit(supabase, { modulo: 'Clientes', entidad: 'Cliente', accion: 'crear', descripcion: `Creó el cliente ${nombre}`, registroId: data?.id || null });
         toast.success('Cliente creado');
       }
       setShowModal(false);
@@ -112,6 +115,15 @@ export default function ClientesPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleDelete(cliente: Cliente) {
+    if (!window.confirm(`¿Eliminar el cliente "${cliente.nombre}"?`)) return;
+    const { error } = await supabase.from('clientes').delete().eq('id', cliente.id);
+    if (error) { toast.error(error.message || 'Error al eliminar'); return; }
+    await logAudit(supabase, { modulo: 'Clientes', entidad: 'Cliente', accion: 'borrar', descripcion: `Eliminó el cliente ${cliente.nombre}`, registroId: cliente.id });
+    toast.success('Cliente eliminado');
+    loadData();
   }
 
   const filteredRaw = clientes.filter(c =>
@@ -154,7 +166,6 @@ export default function ClientesPage() {
                     <SortableTh label="Límite Crédito" sortKey="limite_credito" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Saldo" sortKey="saldo_pendiente" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Crédito Disp." sortKey="credito_disponible" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                    <SortableTh label="Estado" sortKey="activo" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Acciones</th>
                   </tr>
                 </thead>
@@ -195,14 +206,14 @@ export default function ClientesPage() {
                           </div>
                         </td>
                         <td className="table-cell">
-                          <span className={`badge ${c.activo ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-gray-100 text-gray-500'}`}>
-                            {c.activo ? 'Activo' : 'Inactivo'}
-                          </span>
-                        </td>
-                        <td className="table-cell">
-                          <button onClick={() => openEdit(c)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-blue-600">
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center gap-1">
+                            <button onClick={() => openEdit(c)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-blue-600">
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+                            <button onClick={() => handleDelete(c)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500">
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     );
@@ -293,10 +304,6 @@ export default function ClientesPage() {
                 <label className="flex items-center gap-2 cursor-pointer">
                   <input type="checkbox" checked={form.es_exterior} onChange={e => setForm(f => ({ ...f, es_exterior: e.target.checked }))} className="w-4 h-4 accent-blue-600" />
                   <span className="text-sm text-gray-700 dark:text-gray-300">Cliente exterior</span>
-                </label>
-                <label className="flex items-center gap-2 cursor-pointer">
-                  <input type="checkbox" checked={form.activo} onChange={e => setForm(f => ({ ...f, activo: e.target.checked }))} className="w-4 h-4 accent-blue-600" />
-                  <span className="text-sm text-gray-700 dark:text-gray-300">Activo</span>
                 </label>
               </div>
             </div>
