@@ -34,6 +34,7 @@ export default function AuditoriaPage() {
     return !term
       || (item.user_email || '').toLowerCase().includes(term)
       || item.modulo.toLowerCase().includes(term)
+      || item.entidad.toLowerCase().includes(term)
       || item.accion.toLowerCase().includes(term)
       || item.descripcion.toLowerCase().includes(term);
   });
@@ -67,6 +68,7 @@ export default function AuditoriaPage() {
                     <th className="table-header">Fecha</th>
                     <th className="table-header">Usuario</th>
                     <th className="table-header">Módulo</th>
+                    <th className="table-header">Entidad</th>
                     <th className="table-header">Acción</th>
                     <th className="table-header">Detalle</th>
                   </tr>
@@ -77,6 +79,7 @@ export default function AuditoriaPage() {
                       <td className="table-cell whitespace-nowrap">{formatDateTime(item.created_at)}</td>
                       <td className="table-cell">{item.user_email || 'Desconocido'}</td>
                       <td className="table-cell">{item.modulo}</td>
+                      <td className="table-cell">{item.entidad}</td>
                       <td className="table-cell">
                         <span className="badge bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-300 capitalize">
                           {item.accion}
