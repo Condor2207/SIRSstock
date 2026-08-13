@@ -50,23 +50,27 @@ export default function MarcasPage() {
     if (!formNombre.trim()) { toast.error('El nombre es obligatorio'); return; }
     setSaving(true);
     let error: any = null;
+    let recordId: string | null = editando?.id || null;
     const nombre = formNombre.trim().toUpperCase();
 
     if (modal === 'marca') {
-      const { error: e } = editando
-        ? await supabase.from('marcas').update({ nombre }).eq('id', editando.id)
-        : await supabase.from('marcas').insert({ nombre });
+      const { data, error: e } = editando
+        ? await supabase.from('marcas').update({ nombre }).eq('id', editando.id).select('id').single()
+        : await supabase.from('marcas').insert({ nombre }).select('id').single();
       error = e;
+      recordId = data?.id || recordId;
     } else if (modal === 'linea') {
-      const { error: e } = editando
-        ? await supabase.from('lineas').update({ nombre }).eq('id', editando.id)
-        : await supabase.from('lineas').insert({ nombre, marca_id: selectedMarca?.id });
+      const { data, error: e } = editando
+        ? await supabase.from('lineas').update({ nombre }).eq('id', editando.id).select('id').single()
+        : await supabase.from('lineas').insert({ nombre, marca_id: selectedMarca?.id }).select('id').single();
       error = e;
+      recordId = data?.id || recordId;
     } else if (modal === 'grupo') {
-      const { error: e } = editando
-        ? await supabase.from('grupos').update({ nombre }).eq('id', editando.id)
-        : await supabase.from('grupos').insert({ nombre, linea_id: selectedLinea?.id });
+      const { data, error: e } = editando
+        ? await supabase.from('grupos').update({ nombre }).eq('id', editando.id).select('id').single()
+        : await supabase.from('grupos').insert({ nombre, linea_id: selectedLinea?.id }).select('id').single();
       error = e;
+      recordId = data?.id || recordId;
     }
 
     setSaving(false);
@@ -77,7 +81,7 @@ export default function MarcasPage() {
       entidad: modal === 'marca' ? 'Marca' : modal === 'linea' ? 'Línea' : 'Grupo',
       accion: editando ? 'editar' : 'crear',
       descripcion: `${editando ? 'Editó' : 'Creó'} ${modal === 'marca' ? 'la marca' : modal === 'linea' ? 'la línea' : 'el grupo'} ${nombre}`,
-      registroId: editando?.id || null,
+      registroId: recordId,
     });
     setModal(null);
     load();

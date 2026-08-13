@@ -219,20 +219,31 @@ export default function ComprasPage() {
     if (!window.confirm('¿Eliminar esta compra? Se revertirá el stock cargado por la compra.')) return;
     const { data: compra, error } = await supabase.from('compras').select('id, numero, compra_items(producto_id, numero_lote, cantidad)').eq('id', compraId).single();
     if (error || !compra) { toast.error(error?.message || 'No se pudo cargar la compra'); return; }
-    for (const item of (compra as any).compra_items || []) {
-      const { data: producto } = await supabase.from('productos').select('stock_actual').eq('id', item.producto_id).single();
-      if (producto && producto.stock_actual < item.cantidad) {
+    const productQty = ((compra as any).compra_items || []).reduce((acc: Record<string, number>, item: any) => {
+      acc[item.producto_id] = (acc[item.producto_id] || 0) + item.cantidad;
+      return acc;
+    }, {});
+    for (const [productoId, cantidad] of Object.entries(productQty) as Array<[string, number]>) {
+      const { data: producto } = await supabase.from('productos').select('stock_actual').eq('id', productoId).single();
+      if ((producto?.stock_actual || 0) < cantidad) {
         toast.error('No se puede eliminar la compra porque el stock actual ya fue consumido');
         return;
       }
     }
-    for (const item of (compra as any).compra_items || []) {
-      const { data: producto } = await supabase.from('productos').select('stock_actual').eq('id', item.producto_id).single();
-      if (producto) await supabase.from('productos').update({ stock_actual: Math.max(0, producto.stock_actual - item.cantidad) }).eq('id', item.producto_id);
-      if (item.numero_lote) {
-        const { data: lote } = await supabase.from('lotes').select('id, stock_actual').eq('producto_id', item.producto_id).eq('numero_lote', item.numero_lote).single();
-        if (lote) await supabase.from('lotes').update({ stock_actual: Math.max(0, lote.stock_actual - item.cantidad) }).eq('id', lote.id);
-      }
+    for (const [productoId, cantidad] of Object.entries(productQty) as Array<[string, number]>) {
+      const { data: producto } = await supabase.from('productos').select('stock_actual').eq('id', productoId).single();
+      if (producto) await supabase.from('productos').update({ stock_actual: Math.max(0, producto.stock_actual - cantidad) }).eq('id', productoId);
+    }
+    const lotQty = ((compra as any).compra_items || []).reduce((acc: Record<string, { productoId: string; numeroLote: string; cantidad: number }>, item: any) => {
+      if (!item.numero_lote) return acc;
+      const key = `${item.producto_id}::${item.numero_lote}`;
+      acc[key] = acc[key] || { productoId: item.producto_id, numeroLote: item.numero_lote, cantidad: 0 };
+      acc[key].cantidad += item.cantidad;
+      return acc;
+    }, {});
+    for (const item of Object.values(lotQty) as Array<{ productoId: string; numeroLote: string; cantidad: number }>) {
+      const { data: lote } = await supabase.from('lotes').select('id, stock_actual').eq('producto_id', item.productoId).eq('numero_lote', item.numeroLote).single();
+      if (lote) await supabase.from('lotes').update({ stock_actual: Math.max(0, lote.stock_actual - item.cantidad) }).eq('id', lote.id);
     }
     const { error: deleteError } = await supabase.from('compras').delete().eq('id', compraId);
     if (deleteError) { toast.error(deleteError.message || 'No se pudo eliminar la compra'); return; }

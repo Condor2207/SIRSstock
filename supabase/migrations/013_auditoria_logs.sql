@@ -20,15 +20,40 @@ ALTER TABLE auditoria_logs ENABLE ROW LEVEL SECURITY;
 
 DO $$
 BEGIN
-  IF NOT EXISTS (
+  IF EXISTS (
     SELECT 1 FROM pg_policies
     WHERE tablename = 'auditoria_logs' AND policyname = 'auth_all_auditoria_logs'
   ) THEN
-    CREATE POLICY "auth_all_auditoria_logs"
+    DROP POLICY "auth_all_auditoria_logs" ON auditoria_logs;
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'auditoria_logs' AND policyname = 'audit_logs_select_own'
+  ) THEN
+    CREATE POLICY "audit_logs_select_own"
       ON auditoria_logs
-      FOR ALL
+      FOR SELECT
       TO authenticated
-      USING (true)
-      WITH CHECK (true);
+      USING (
+        user_id = auth.uid()
+        OR EXISTS (
+          SELECT 1
+          FROM profiles
+          WHERE profiles.id = auth.uid()
+            AND profiles.role = 'admin'
+        )
+      );
+  END IF;
+
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_policies
+    WHERE tablename = 'auditoria_logs' AND policyname = 'audit_logs_insert_own'
+  ) THEN
+    CREATE POLICY "audit_logs_insert_own"
+      ON auditoria_logs
+      FOR INSERT
+      TO authenticated
+      WITH CHECK (user_id = auth.uid() OR user_id IS NULL);
   END IF;
 END $$;
