@@ -17,7 +17,7 @@ BEGIN
     ON auditoria_logs
     FOR INSERT
     TO authenticated
-    WITH CHECK (true);
+    WITH CHECK (user_id = auth.uid() OR user_id IS NULL);
 
   -- DROP and recreate SELECT policy so admins see all and regular users see their own
   IF EXISTS (

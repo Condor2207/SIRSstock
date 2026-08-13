@@ -26,7 +26,11 @@ function getSessionId() {
 
 export async function logAudit(supabase: SupabaseClient, payload: AuditPayload) {
   try {
-    const { data: { user } } = await supabase.auth.getUser();
+    const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+    if (authError) {
+      console.warn('No se pudo obtener el usuario para auditoría:', authError.message);
+    }
 
     const { error: insertError } = await supabase.from('auditoria_logs').insert({
       user_id: user?.id ?? null,
