@@ -29,8 +29,7 @@ export async function logAudit(supabase: SupabaseClient, payload: AuditPayload) 
     const { data: { user }, error: authError } = await supabase.auth.getUser();
 
     if (authError) {
-      console.error('No se pudo obtener el usuario para auditoría:', authError.message);
-      return;
+      console.warn('No se pudo obtener el usuario para auditoría:', authError.message);
     }
 
     const { error: insertError } = await supabase.from('auditoria_logs').insert({
