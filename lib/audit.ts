@@ -45,9 +45,9 @@ export async function logAudit(supabase: SupabaseClient, payload: AuditPayload) 
     });
 
     if (insertError) {
-      console.error('No se pudo insertar el log de auditoría:', insertError.message);
+      console.error('No se pudo insertar el log de auditoría:', insertError.message, insertError);
     }
   } catch (error) {
-    console.error('No se pudo registrar la auditoría', error);
+    console.error('No se pudo registrar la auditoría:', error);
   }
 }
