@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
+import { logAudit } from '@/lib/audit';
 import { formatCurrency, formatDate, estadoBadgeClass } from '@/lib/utils';
 import { Plus, Search, Eye, X, Loader2, Trash2, CreditCard } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -197,6 +198,7 @@ export default function ComprasPage() {
       }
 
       toast.success(`Compra ${numCompra} registrada exitosamente`);
+      await logAudit(supabase, { modulo: 'Compras', entidad: 'Compra', accion: 'crear', descripcion: `Registró la compra ${numCompra}`, registroId: compra.id });
       setShowModal(false);
       setItems([]);
       setForm({ proveedor_id: '', condicion_pago: 'contado', numero_remito: '', numero_factura: '', notas: '', compra_servicios: '', plazo_dias: '', cantidad_cuotas: '1' });
@@ -211,6 +213,32 @@ export default function ComprasPage() {
   async function openDetalle(c: Compra) {
     const { data } = await supabase.from('compras').select('*, proveedores(*), compra_items(*, productos(nombre, sku))').eq('id', c.id).single();
     setDetalle(data as Compra);
+  }
+
+  async function handleDelete(compraId: string) {
+    if (!window.confirm('¿Eliminar esta compra? Se revertirá el stock cargado por la compra.')) return;
+    const { data: compra, error } = await supabase.from('compras').select('id, numero, compra_items(producto_id, numero_lote, cantidad)').eq('id', compraId).single();
+    if (error || !compra) { toast.error(error?.message || 'No se pudo cargar la compra'); return; }
+    for (const item of (compra as any).compra_items || []) {
+      const { data: producto } = await supabase.from('productos').select('stock_actual').eq('id', item.producto_id).single();
+      if (producto && producto.stock_actual < item.cantidad) {
+        toast.error('No se puede eliminar la compra porque el stock actual ya fue consumido');
+        return;
+      }
+    }
+    for (const item of (compra as any).compra_items || []) {
+      const { data: producto } = await supabase.from('productos').select('stock_actual').eq('id', item.producto_id).single();
+      if (producto) await supabase.from('productos').update({ stock_actual: Math.max(0, producto.stock_actual - item.cantidad) }).eq('id', item.producto_id);
+      if (item.numero_lote) {
+        const { data: lote } = await supabase.from('lotes').select('id, stock_actual').eq('producto_id', item.producto_id).eq('numero_lote', item.numero_lote).single();
+        if (lote) await supabase.from('lotes').update({ stock_actual: Math.max(0, lote.stock_actual - item.cantidad) }).eq('id', lote.id);
+      }
+    }
+    const { error: deleteError } = await supabase.from('compras').delete().eq('id', compraId);
+    if (deleteError) { toast.error(deleteError.message || 'No se pudo eliminar la compra'); return; }
+    await logAudit(supabase, { modulo: 'Compras', entidad: 'Compra', accion: 'borrar', descripcion: `Eliminó la compra ${compra.numero}`, registroId: compraId });
+    toast.success('Compra eliminada');
+    load();
   }
 
   const filteredRaw = compras.filter(c =>
@@ -270,6 +298,9 @@ export default function ComprasPage() {
                       <td className="table-cell">
                         <button onClick={() => openDetalle(c)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-blue-600">
                           <Eye className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => handleDelete(c.id)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500">
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </td>
                     </tr>

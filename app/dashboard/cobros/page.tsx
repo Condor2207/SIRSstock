@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
+import { logAudit } from '@/lib/audit';
 import { formatCurrency, formatDate, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
 import { Plus, Search, Eye, X, Loader2, Handshake, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -212,6 +213,13 @@ export default function CobrosPage() {
         }
       }
 
+      await logAudit(supabase, {
+        modulo: 'Cobros',
+        entidad: 'Cobro',
+        accion: 'crear',
+        descripcion: `Registró el cobro ${numCobro}`,
+        registroId: cobro.id,
+      });
       toast.success(`Cobro ${numCobro} registrado`);
       setShowModal(false);
       load();
@@ -220,6 +228,47 @@ export default function CobrosPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleDelete(cobroId: string) {
+    if (!window.confirm('¿Eliminar este cobro? Se revertirán los saldos aplicados.')) return;
+    const { data: cobro, error } = await supabase
+      .from('cobros')
+      .select('id, numero, tipo_referencia, cliente_id, cobro_facturas(venta_id, monto_aplicado), cobro_gastos(gasto_id, monto_aplicado)')
+      .eq('id', cobroId)
+      .single();
+    if (error || !cobro) { toast.error(error?.message || 'No se pudo cargar el cobro'); return; }
+
+    if (cobro.tipo_referencia === 'clientes') {
+      for (const item of (cobro as any).cobro_facturas || []) {
+        const { data: venta } = await supabase.from('ventas').select('saldo_pendiente, total').eq('id', item.venta_id).single();
+        if (venta) {
+          const nuevoSaldo = Math.min(venta.total, (venta.saldo_pendiente || 0) + item.monto_aplicado);
+          const nuevoEstado = nuevoSaldo === venta.total ? 'pendiente' : 'parcial';
+          await supabase.from('ventas').update({ saldo_pendiente: nuevoSaldo, estado: nuevoEstado }).eq('id', item.venta_id);
+        }
+      }
+      if (cobro.cliente_id) {
+        const { data: cliente } = await supabase.from('clientes').select('saldo_pendiente').eq('id', cobro.cliente_id).single();
+        const totalCobrado = ((cobro as any).cobro_facturas || []).reduce((sum: number, item: any) => sum + item.monto_aplicado, 0);
+        if (cliente) await supabase.from('clientes').update({ saldo_pendiente: (cliente.saldo_pendiente || 0) + totalCobrado }).eq('id', cobro.cliente_id);
+      }
+    } else {
+      for (const item of (cobro as any).cobro_gastos || []) {
+        const { data: gasto } = await supabase.from('gastos').select('saldo_pendiente, monto').eq('id', item.gasto_id).single();
+        if (gasto) {
+          const nuevoSaldo = Math.min(gasto.monto, (gasto.saldo_pendiente || 0) + item.monto_aplicado);
+          const nuevoEstado = nuevoSaldo === gasto.monto ? 'pendiente' : 'parcial';
+          await supabase.from('gastos').update({ saldo_pendiente: nuevoSaldo, estado: nuevoEstado }).eq('id', item.gasto_id);
+        }
+      }
+    }
+
+    const { error: deleteError } = await supabase.from('cobros').delete().eq('id', cobroId);
+    if (deleteError) { toast.error(deleteError.message || 'No se pudo eliminar el cobro'); return; }
+    await logAudit(supabase, { modulo: 'Cobros', entidad: 'Cobro', accion: 'borrar', descripcion: `Eliminó el cobro ${cobro.numero}`, registroId: cobroId });
+    toast.success('Cobro eliminado');
+    load();
   }
 
   const filteredRaw = cobros.filter(c =>
@@ -282,6 +331,9 @@ export default function CobrosPage() {
                       <td className="table-cell">
                         <button onClick={() => setDetalle(c)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-blue-600">
                           <Eye className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => handleDelete(c.id)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500">
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </td>
                     </tr>

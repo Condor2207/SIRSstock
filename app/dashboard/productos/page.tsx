@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
+import { logAudit } from '@/lib/audit';
 import { formatCurrency, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
 import { Plus, Search, Edit2, Trash2, X, Loader2, Package } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -36,7 +37,7 @@ export default function ProductosPage() {
   const [form, setForm] = useState({
     sku: '', nombre: '', descripcion: '', categoria_id: '',
     unidad_medida: '', precio_venta: '', precio_compra: '',
-    stock_minimo: '', control_lote: false, activo: true,
+    stock_minimo: '', control_lote: false,
     clasificacion_id: '', codigo_barras: '',
     marca_id: '', linea_id: '', grupo_id: '',
     tasa_iva_id: '', es_exportacion: false,
@@ -76,7 +77,7 @@ export default function ProductosPage() {
       sku: p.sku, nombre: p.nombre, descripcion: p.descripcion || '',
       categoria_id: p.categoria_id || '', unidad_medida: p.unidad_medida,
       precio_venta: String(p.precio_venta), precio_compra: String(p.precio_compra || 0),
-      stock_minimo: String(p.stock_minimo || 0), control_lote: p.control_lote, activo: p.activo,
+      stock_minimo: String(p.stock_minimo || 0), control_lote: p.control_lote,
       clasificacion_id: (p as any).clasificacion_id || '', codigo_barras: (p as any).codigo_barras || '',
       marca_id: (p as any).marca_id || '', linea_id: (p as any).linea_id || '', grupo_id: (p as any).grupo_id || '',
       tasa_iva_id: (p as any).tasa_iva_id || '', es_exportacion: (p as any).es_exportacion || false,
@@ -103,7 +104,7 @@ export default function ProductosPage() {
 
   function openNew() {
     setEditando(null);
-    setForm({ sku: '', nombre: '', descripcion: '', categoria_id: '', unidad_medida: unidades[0]?.nombre || 'Unidad', precio_venta: '', precio_compra: '', stock_minimo: '0', control_lote: false, activo: true, clasificacion_id: '', codigo_barras: '', marca_id: '', linea_id: '', grupo_id: '', tasa_iva_id: '', es_exportacion: false, plazo_vencimiento_meses: '36', porcentaje_comision: '0' });
+    setForm({ sku: '', nombre: '', descripcion: '', categoria_id: '', unidad_medida: unidades[0]?.nombre || 'Unidad', precio_venta: '', precio_compra: '', stock_minimo: '0', control_lote: false, clasificacion_id: '', codigo_barras: '', marca_id: '', linea_id: '', grupo_id: '', tasa_iva_id: '', es_exportacion: false, plazo_vencimiento_meses: '36', porcentaje_comision: '0' });
     setPreciosPorLista({});
     setFormExport({ nombre_en: '', descripcion_en: '', unidad_medida_en: '', precio_usd: '', codigo_barras_en: '', notas_en: '' });
     setTabModal('general');
@@ -132,7 +133,7 @@ export default function ProductosPage() {
       precio_venta: parseFloat(form.precio_venta) || 0,
       precio_compra: parseFloat(form.precio_compra) || 0,
       stock_minimo: parseFloat(form.stock_minimo) || 0,
-      control_lote: form.control_lote, activo: form.activo,
+      control_lote: form.control_lote,
     };
     const payloadExtra: any = {
       clasificacion_id: form.clasificacion_id || null,
@@ -149,6 +150,7 @@ export default function ProductosPage() {
       const payload = { ...payloadBase, ...payloadExtra };
       const retryRefs = ['clasificacion_id', 'codigo_barras', 'marca_id', 'linea_id', 'grupo_id', 'tasa_iva_id', 'es_exportacion', 'plazo_vencimiento_meses', 'porcentaje_comision'];
       let productoId = editando?.id;
+      let auditAction: 'crear' | 'editar' = editando ? 'editar' : 'crear';
       if (editando) {
         let { error } = await supabase.from('productos').update(payload).eq('id', editando.id);
         if (error && isSchemaCacheMissing(error, retryRefs)) {
@@ -186,6 +188,7 @@ export default function ProductosPage() {
         };
         await supabase.from('producto_exportacion').upsert(expPayload, { onConflict: 'producto_id' });
       }
+      await logAudit(supabase, { modulo: 'Productos', entidad: 'Producto', accion: auditAction, descripcion: `${auditAction === 'crear' ? 'Creó' : 'Editó'} el producto ${payloadBase.nombre}`, registroId: productoId });
       setShowModal(false);
       loadData();
     } catch (e: any) {
@@ -195,9 +198,12 @@ export default function ProductosPage() {
     }
   }
 
-  async function toggleActivo(p: Producto) {
-    await supabase.from('productos').update({ activo: !p.activo }).eq('id', p.id);
-    toast.success(p.activo ? 'Producto desactivado' : 'Producto activado');
+  async function handleDelete(p: Producto) {
+    if (!window.confirm(`¿Eliminar el producto "${p.nombre}"?`)) return;
+    const { error } = await supabase.from('productos').delete().eq('id', p.id);
+    if (error) { toast.error(getErrorMessage(error)); return; }
+    await logAudit(supabase, { modulo: 'Productos', entidad: 'Producto', accion: 'borrar', descripcion: `Eliminó el producto ${p.nombre}`, registroId: p.id });
+    toast.success('Producto eliminado');
     loadData();
   }
 
@@ -242,7 +248,6 @@ export default function ProductosPage() {
                     <SortableTh label="Unidad" sortKey="unidad_medida" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Precio Venta" sortKey="precio_venta" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Stock" sortKey="stock_actual" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                    <SortableTh label="Estado" sortKey="activo" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Acciones</th>
                   </tr>
                 </thead>
@@ -261,16 +266,11 @@ export default function ProductosPage() {
                         </span>
                       </td>
                       <td className="table-cell">
-                        <span className={`badge ${p.activo ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-gray-100 text-gray-500'}`}>
-                          {p.activo ? 'Activo' : 'Inactivo'}
-                        </span>
-                      </td>
-                      <td className="table-cell">
                         <div className="flex items-center gap-1">
                           <button onClick={() => openEdit(p)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-blue-600" title="Editar">
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => toggleActivo(p)} className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-xs ${p.activo ? 'text-red-500' : 'text-green-500'}`}>
+                          <button onClick={() => handleDelete(p)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500" title="Eliminar">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -439,10 +439,6 @@ export default function ProductosPage() {
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input type="checkbox" checked={form.es_exportacion} onChange={e => setForm(f => ({ ...f, es_exportacion: e.target.checked }))} className="w-4 h-4 accent-blue-600" />
                       <span className="text-sm text-gray-700 dark:text-gray-300">Es exportación</span>
-                    </label>
-                    <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={form.activo} onChange={e => setForm(f => ({ ...f, activo: e.target.checked }))} className="w-4 h-4 accent-blue-600" />
-                      <span className="text-sm text-gray-700 dark:text-gray-300">Activo</span>
                     </label>
                   </div>
                 </>

@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
-import { Plus, Edit2, X, Loader2, Check } from 'lucide-react';
+import { logAudit } from '@/lib/audit';
+import { Plus, Edit2, Trash2, X, Loader2, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Vendedor } from '@/lib/types';
 
@@ -14,19 +15,19 @@ export default function VendedoresPage() {
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando] = useState<Vendedor | null>(null);
   const [saving, setSaving] = useState(false);
-  const [form, setForm] = useState({ nombre: '', telefono: '', email: '', porcentaje_venta: '0', activo: true });
+  const [form, setForm] = useState({ nombre: '', telefono: '', email: '', porcentaje_venta: '0' });
 
   const load = useCallback(async () => {
     setLoading(true);
     const { data } = await supabase.from('vendedores').select('*').order('nombre');
     setItems(data as Vendedor[] || []);
     setLoading(false);
-  }, []);
+  }, [supabase]);
 
   useEffect(() => { load(); }, [load]);
 
-  function openNew() { setEditando(null); setForm({ nombre: '', telefono: '', email: '', porcentaje_venta: '0', activo: true }); setShowModal(true); }
-  function openEdit(v: Vendedor) { setEditando(v); setForm({ nombre: v.nombre, telefono: v.telefono || '', email: v.email || '', porcentaje_venta: String(v.porcentaje_venta ?? 0), activo: v.activo }); setShowModal(true); }
+  function openNew() { setEditando(null); setForm({ nombre: '', telefono: '', email: '', porcentaje_venta: '0' }); setShowModal(true); }
+  function openEdit(v: Vendedor) { setEditando(v); setForm({ nombre: v.nombre, telefono: v.telefono || '', email: v.email || '', porcentaje_venta: String(v.porcentaje_venta ?? 0) }); setShowModal(true); }
 
   async function handleSave() {
     const nombre = form.nombre.trim();
@@ -42,15 +43,24 @@ export default function VendedoresPage() {
       telefono: telefono || null,
       email: email || null,
       porcentaje_venta: Math.min(100, Math.max(0, parseFloat(form.porcentaje_venta) || 0)),
-      activo: form.activo
     };
-    const { error } = editando
-      ? await supabase.from('vendedores').update(payload).eq('id', editando.id)
-      : await supabase.from('vendedores').insert(payload);
+    const { data, error } = editando
+      ? await supabase.from('vendedores').update(payload).eq('id', editando.id).select('id').single()
+      : await supabase.from('vendedores').insert(payload).select('id').single();
     setSaving(false);
     if (error) { toast.error(error.message); return; }
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Vendedor', accion: editando ? 'editar' : 'crear', descripcion: `${editando ? 'Editó' : 'Creó'} el vendedor ${payload.nombre}`, registroId: data?.id || editando?.id || null });
     toast.success(editando ? 'Actualizado' : 'Creado');
     setShowModal(false);
+    load();
+  }
+
+  async function handleDelete(item: Vendedor) {
+    if (!window.confirm(`¿Eliminar el vendedor "${item.nombre}"?`)) return;
+    const { error } = await supabase.from('vendedores').delete().eq('id', item.id);
+    if (error) { toast.error(error.message); return; }
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Vendedor', accion: 'borrar', descripcion: `Eliminó el vendedor ${item.nombre}`, registroId: item.id });
+    toast.success('Vendedor eliminado');
     load();
   }
 
@@ -59,13 +69,13 @@ export default function VendedoresPage() {
       <Header title="Vendedores" />
       <div className="p-4 md:p-6">
         <div className="flex flex-wrap justify-between items-center mb-4 gap-2">
-          <p className="text-sm text-gray-500 dark:text-gray-400">{items.filter(v => v.activo).length} vendedores activos</p>
+          <p className="text-sm text-gray-500 dark:text-gray-400">{items.length} vendedores registrados</p>
           <button className="btn-primary flex items-center gap-2" onClick={openNew}><Plus className="w-4 h-4" />Nuevo Vendedor</button>
         </div>
         <div className="card overflow-x-auto">
           {loading ? <div className="flex justify-center p-8"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div> : (
             <table className="w-full text-sm">
-              <thead><tr><th className="table-header">Nombre</th><th className="table-header">Teléfono</th><th className="table-header">Email</th><th className="table-header">% Venta</th><th className="table-header">Estado</th><th className="table-header text-right">Acciones</th></tr></thead>
+              <thead><tr><th className="table-header">Nombre</th><th className="table-header">Teléfono</th><th className="table-header">Email</th><th className="table-header">% Venta</th><th className="table-header text-right">Acciones</th></tr></thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {items.map(v => (
                   <tr key={v.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
@@ -73,10 +83,10 @@ export default function VendedoresPage() {
                     <td className="table-cell text-gray-500">{v.telefono || '—'}</td>
                     <td className="table-cell text-gray-500">{v.email || '—'}</td>
                     <td className="table-cell"><span className="font-semibold text-cyan-600">{v.porcentaje_venta ?? 0}%</span></td>
-                    <td className="table-cell">
-                      {v.activo ? <span className="badge bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400">Activo</span> : <span className="badge bg-gray-100 text-gray-500">Inactivo</span>}
+                    <td className="table-cell text-right">
+                      <button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(v)}><Edit2 className="w-4 h-4" /></button>
+                      <button className="text-red-500 hover:text-red-700 p-1" onClick={() => handleDelete(v)}><Trash2 className="w-4 h-4" /></button>
                     </td>
-                    <td className="table-cell text-right"><button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(v)}><Edit2 className="w-4 h-4" /></button></td>
                   </tr>
                 ))}
               </tbody>
@@ -97,10 +107,6 @@ export default function VendedoresPage() {
               <div><label className="label">Teléfono * (o Email)</label><input className="input" value={form.telefono} onChange={e => setForm(p => ({ ...p, telefono: e.target.value }))} /></div>
               <div><label className="label">Email * (o Teléfono)</label><input className="input" type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
               <div><label className="label">Porcentaje de venta (%)</label><input className="input" type="number" min="0" max="100" step="0.01" value={form.porcentaje_venta} onChange={e => setForm(p => ({ ...p, porcentaje_venta: e.target.value }))} /></div>
-              <div className="flex items-center gap-2">
-                <input type="checkbox" id="activo_v" checked={form.activo} onChange={e => setForm(p => ({ ...p, activo: e.target.checked }))} />
-                <label htmlFor="activo_v" className="text-sm text-gray-700 dark:text-gray-300">Activo</label>
-              </div>
             </div>
             <div className="flex gap-3 mt-6">
               <button className="btn-secondary flex-1" onClick={() => setShowModal(false)}>Cancelar</button>

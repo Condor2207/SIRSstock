@@ -3,8 +3,9 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
+import { logAudit } from '@/lib/audit';
 import { formatCurrency, formatDate, estadoBadgeClass, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
-import { Plus, Search, Receipt, X, Loader2, Edit2 } from 'lucide-react';
+import { Plus, Search, Receipt, X, Loader2, Edit2, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Gasto, Proveedor, TasaIva } from '@/lib/types';
 import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
@@ -190,10 +191,17 @@ export default function GastosPage() {
           estado,
         });
       }
-      const { error } = editando
-        ? await supabase.from('gastos').update(payload).eq('id', editando.id)
-        : await supabase.from('gastos').insert(payload);
+      const { data, error } = editando
+        ? await supabase.from('gastos').update(payload).eq('id', editando.id).select('id').single()
+        : await supabase.from('gastos').insert(payload).select('id').single();
       if (error) throw error;
+      await logAudit(supabase, {
+        modulo: 'Gastos',
+        entidad: 'Gasto',
+        accion: editando ? 'editar' : 'crear',
+        descripcion: `${editando ? 'Editó' : 'Registró'} el gasto ${form.categoria}`,
+        registroId: data?.id || editando?.id || null,
+      });
       toast.success(editando ? 'Gasto actualizado' : 'Gasto registrado');
       setShowModal(false);
       resetForm();
@@ -203,6 +211,15 @@ export default function GastosPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleDelete(gasto: Gasto) {
+    if (!window.confirm(`¿Eliminar el gasto "${gasto.categoria || gasto.titulo}"?`)) return;
+    const { error } = await supabase.from('gastos').delete().eq('id', gasto.id);
+    if (error) { toast.error(getErrorMessage(error) || 'Error al eliminar'); return; }
+    await logAudit(supabase, { modulo: 'Gastos', entidad: 'Gasto', accion: 'borrar', descripcion: `Eliminó el gasto ${gasto.categoria || gasto.titulo}`, registroId: gasto.id });
+    toast.success('Gasto eliminado');
+    load();
   }
 
   const filteredRaw = gastos.filter(g =>
@@ -279,6 +296,9 @@ export default function GastosPage() {
                       <td className="table-cell text-right">
                         <button onClick={() => openEdit(g)} className="p-1 text-blue-500 hover:text-blue-700" title="Editar gasto">
                           <Edit2 className="w-4 h-4" />
+                        </button>
+                        <button onClick={() => handleDelete(g)} className="p-1 text-red-500 hover:text-red-700" title="Eliminar gasto">
+                          <Trash2 className="w-4 h-4" />
                         </button>
                       </td>
                     </tr>

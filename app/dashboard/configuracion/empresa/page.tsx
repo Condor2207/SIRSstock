@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
+import { logAudit } from '@/lib/audit';
 import { Save, Loader2, Building2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { EmpresaConfig } from '@/lib/types';
@@ -58,7 +59,10 @@ export default function EmpresaConfigPage() {
     });
     setSaving(false);
     if (error) toast.error(getEmpresaConfigErrorMessage(error));
-    else toast.success('Configuración guardada');
+    else {
+      await logAudit(supabase, { modulo: 'Configuración', entidad: 'Empresa', accion: 'editar', descripcion: 'Actualizó la configuración de empresa' });
+      toast.success('Configuración guardada');
+    }
   }
 
   if (loading) return <div className="flex items-center justify-center h-64"><Loader2 className="w-8 h-8 animate-spin text-blue-500" /></div>;

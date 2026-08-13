@@ -3,7 +3,8 @@
 import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
-import { Plus, Search, Edit2, Truck, X, Loader2 } from 'lucide-react';
+import { logAudit } from '@/lib/audit';
+import { Plus, Search, Edit2, Trash2, Truck, X, Loader2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Proveedor, CondicionVenta } from '@/lib/types';
 import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
@@ -20,7 +21,7 @@ export default function ProveedoresPage() {
   const [form, setForm] = useState({
     nombre: '', documento: '', tipo_documento: 'RUC',
     direccion: '', telefono: '', email: '', condicion_pago: '',
-    condicion_venta_id: '', activo: true,
+    condicion_venta_id: '',
   });
 
   const load = useCallback(async () => {
@@ -38,7 +39,7 @@ export default function ProveedoresPage() {
 
   function openNew() {
     setEditando(null);
-    setForm({ nombre: '', documento: '', tipo_documento: 'RUC', direccion: '', telefono: '', email: '', condicion_pago: '', condicion_venta_id: '', activo: true });
+    setForm({ nombre: '', documento: '', tipo_documento: 'RUC', direccion: '', telefono: '', email: '', condicion_pago: '', condicion_venta_id: '' });
     setShowModal(true);
   }
 
@@ -49,7 +50,6 @@ export default function ProveedoresPage() {
       direccion: p.direccion || '', telefono: p.telefono || '', email: p.email || '',
       condicion_pago: p.condicion_pago || '',
       condicion_venta_id: (p as any).condicion_venta_id || '',
-      activo: p.activo,
     });
     setShowModal(true);
   }
@@ -78,16 +78,17 @@ export default function ProveedoresPage() {
       direccion: form.direccion.trim() || null, telefono: telefono || null, email: email || null,
       condicion_pago: form.condicion_pago.trim() || null,
       condicion_venta_id: form.condicion_venta_id || null,
-      activo: form.activo,
     };
     try {
       if (editando) {
         const { error } = await supabase.from('proveedores').update(payload).eq('id', editando.id);
         if (error) throw error;
+        await logAudit(supabase, { modulo: 'Proveedores', entidad: 'Proveedor', accion: 'editar', descripcion: `Editó el proveedor ${nombre}`, registroId: editando.id });
         toast.success('Proveedor actualizado');
       } else {
-        const { error } = await supabase.from('proveedores').insert(payload);
+        const { data, error } = await supabase.from('proveedores').insert(payload).select('id').single();
         if (error) throw error;
+        await logAudit(supabase, { modulo: 'Proveedores', entidad: 'Proveedor', accion: 'crear', descripcion: `Creó el proveedor ${nombre}`, registroId: data?.id || null });
         toast.success('Proveedor creado');
       }
       setShowModal(false);
@@ -97,6 +98,15 @@ export default function ProveedoresPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function handleDelete(proveedor: Proveedor) {
+    if (!window.confirm(`¿Eliminar el proveedor "${proveedor.nombre}"?`)) return;
+    const { error } = await supabase.from('proveedores').delete().eq('id', proveedor.id);
+    if (error) { toast.error(error.message || 'Error al eliminar'); return; }
+    await logAudit(supabase, { modulo: 'Proveedores', entidad: 'Proveedor', accion: 'borrar', descripcion: `Eliminó el proveedor ${proveedor.nombre}`, registroId: proveedor.id });
+    toast.success('Proveedor eliminado');
+    load();
   }
 
   const filteredRaw = proveedores.filter(p =>
@@ -138,7 +148,6 @@ export default function ProveedoresPage() {
                     <SortableTh label="Teléfono" sortKey="telefono" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Email" sortKey="email" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Condición pago" sortKey="condicion_pago" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
-                    <SortableTh label="Estado" sortKey="activo" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <th className="table-header">Acciones</th>
                   </tr>
                 </thead>
@@ -154,14 +163,14 @@ export default function ProveedoresPage() {
                       <td className="table-cell text-xs">{p.email || '-'}</td>
                       <td className="table-cell">{p.condicion_pago || '-'}</td>
                       <td className="table-cell">
-                        <span className={`badge ${p.activo ? 'bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-300' : 'bg-gray-100 text-gray-500'}`}>
-                          {p.activo ? 'Activo' : 'Inactivo'}
-                        </span>
-                      </td>
-                      <td className="table-cell">
-                        <button onClick={() => openEdit(p)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-blue-600">
-                          <Edit2 className="w-3.5 h-3.5" />
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button onClick={() => openEdit(p)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-blue-600">
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                          <button onClick={() => handleDelete(p)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500">
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
                       </td>
                     </tr>
                   ))}
@@ -224,10 +233,6 @@ export default function ProveedoresPage() {
                   <input className="input" value={form.condicion_pago} onChange={e => setForm(f => ({ ...f, condicion_pago: e.target.value }))} placeholder="Observaciones" />
                 </div>
               </div>
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input type="checkbox" checked={form.activo} onChange={e => setForm(f => ({ ...f, activo: e.target.checked }))} className="w-4 h-4 accent-blue-600" />
-                <span className="text-sm">Proveedor activo</span>
-              </label>
             </div>
             <div className="flex justify-end gap-3 p-5 border-t border-gray-100 dark:border-gray-700">
               <button onClick={() => setShowModal(false)} className="btn-secondary">Cancelar</button>

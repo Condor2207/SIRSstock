@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { useRouter } from 'next/navigation';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
+import { logAudit } from '@/lib/audit';
 import { formatCurrency, calcularCuotas, formatDate } from '@/lib/utils';
 import { Plus, Trash2, ShoppingCart, Loader2, ArrowLeft, Search, Printer, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -315,6 +316,13 @@ export default function NuevaVentaPage() {
         }).eq('id', clienteId);
       }
 
+      await logAudit(supabase, {
+        modulo: 'Ventas',
+        entidad: 'Venta',
+        accion: 'crear',
+        descripcion: `Registró la venta ${numVenta}`,
+        registroId: venta.id,
+      });
       toast.success(`✅ Venta ${numVenta} registrada exitosamente`);
       setVentaConfirmada(numVenta);
     } catch (e: any) {

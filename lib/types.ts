@@ -517,3 +517,17 @@ export interface DashboardStats {
   total_ventas_contado: number;
   total_ventas_credito: number;
 }
+
+export interface AuditLog {
+  id: string;
+  user_id?: string | null;
+  user_email?: string | null;
+  session_id: string;
+  modulo: string;
+  entidad: string;
+  accion: string;
+  descripcion: string;
+  registro_id?: string | null;
+  detalles?: Record<string, unknown>;
+  created_at: string;
+}
