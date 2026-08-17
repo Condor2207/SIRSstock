@@ -126,7 +126,11 @@ export default function ProductosPage() {
   async function handleSave() {
     if (!form.nombre) { toast.error('El nombre es obligatorio'); return; }
     // Validate SKU uniqueness (excluding current product when editing)
-    const skuVal = form.sku.trim().toUpperCase();
+    // El SKU es obligatorio en la base. Si el usuario no lo ingresa,
+    // generamos uno aquí para no depender exclusivamente de un trigger
+    // que podría no estar instalado aún en una base existente.
+    const skuIngresado = form.sku.trim().toUpperCase();
+    const skuVal = skuIngresado || `AUTO-${crypto.randomUUID().replace(/-/g, '').slice(0, 12).toUpperCase()}`;
     if (skuVal) {
       let skuQuery = supabase.from('productos').select('id').eq('sku', skuVal);
       if (editando) skuQuery = skuQuery.neq('id', editando.id);
@@ -135,7 +139,7 @@ export default function ProductosPage() {
     }
     setSaving(true);
     const payloadBase: any = {
-      ...(skuVal ? { sku: skuVal } : {}), nombre: form.nombre,
+      sku: skuVal, nombre: form.nombre,
       descripcion: form.descripcion || null,
       categoria_id: form.categoria_id || null,
       unidad_medida: form.unidad_medida || 'Unidad',
