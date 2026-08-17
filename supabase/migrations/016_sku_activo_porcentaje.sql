@@ -7,8 +7,6 @@
 ALTER TABLE vendedores
   ADD COLUMN IF NOT EXISTS porcentaje_venta NUMERIC(5,2) NOT NULL DEFAULT 0;
 
-UPDATE vendedores SET porcentaje_venta = 0 WHERE porcentaje_venta IS NULL;
-
 DO $$
 BEGIN
   IF NOT EXISTS (

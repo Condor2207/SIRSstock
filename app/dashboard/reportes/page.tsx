@@ -7,7 +7,7 @@ import { formatCurrency, formatDate, formatNumber, diasHastaVencimiento, estadoV
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line } from 'recharts';
 import { Download, BarChart2, Package, Users, AlertTriangle, Loader2, CreditCard, BadgePercent, Receipt, FileText, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
-import * as XLSX from 'xlsx';
+import ExcelJS from 'exceljs';
 
 type TabType = 'ventas' | 'stock' | 'cobrar' | 'vencimientos' | 'pagar' | 'comisiones' | 'gastos_credito' | 'gastos_unificados' | 'rg90';
 
@@ -153,7 +153,7 @@ export default function ReportesPage() {
           // gastos_credito might not be available yet
         }
         const unified = [...comprasRows, ...gastosRows].sort((a, b) =>
-          (a.fecha_vencimiento || '9999') < (b.fecha_vencimiento || '9999') ? -1 : 1
+          (a.fecha_vencimiento || '9999').localeCompare(b.fecha_vencimiento || '9999')
         );
         setGastosUnificadosData(unified);
       }
@@ -165,7 +165,7 @@ export default function ReportesPage() {
     }
   }
 
-  function exportXLSX() {
+  async function exportXLSX() {
     let data: Record<string, any>[] = [];
     let sheetName = 'Reporte';
     let filename = 'reporte';
@@ -206,10 +206,18 @@ export default function ReportesPage() {
 
     if (data.length === 0) { toast.error('Sin datos para exportar'); return; }
 
-    const ws = XLSX.utils.json_to_sheet(data);
-    const wb = XLSX.utils.book_new();
-    XLSX.utils.book_append_sheet(wb, ws, sheetName);
-    XLSX.writeFile(wb, `${filename}.xlsx`);
+    const wb = new ExcelJS.Workbook();
+    const ws = wb.addWorksheet(sheetName);
+    ws.columns = Object.keys(data[0]).map(key => ({ header: key, key, width: 20 }));
+    data.forEach(row => ws.addRow(row));
+    // Bold header row
+    ws.getRow(1).font = { bold: true };
+    const buffer = await wb.xlsx.writeBuffer();
+    const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url; a.download = `${filename}.xlsx`; a.click();
+    URL.revokeObjectURL(url);
     toast.success('Excel exportado');
   }
 
