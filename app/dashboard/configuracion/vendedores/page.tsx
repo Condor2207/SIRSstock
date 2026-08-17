@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
+import { getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
 import { Plus, Edit2, Trash2, X, Loader2, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Vendedor } from '@/lib/types';
@@ -38,17 +39,33 @@ export default function VendedoresPage() {
     if (!telefono && !email) { toast.error('Debés cargar teléfono o email'); return; }
 
     setSaving(true);
+    const porcentaje_venta = Math.min(100, Math.max(0, parseFloat(form.porcentaje_venta) || 0));
     const payload = {
       nombre,
       telefono: telefono || null,
       email: email || null,
-      porcentaje_venta: Math.min(100, Math.max(0, parseFloat(form.porcentaje_venta) || 0)),
+      porcentaje_venta,
     };
-    const { data, error } = editando
-      ? await supabase.from('vendedores').update(payload).eq('id', editando.id).select('id').single()
-      : await supabase.from('vendedores').insert(payload).select('id').single();
+    const payloadBase = { nombre, telefono: telefono || null, email: email || null };
+    let data: { id: string } | null = null;
+    let error: any = null;
+    if (editando) {
+      const res = await supabase.from('vendedores').update(payload).eq('id', editando.id).select('id').single();
+      data = res.data; error = res.error;
+      if (error && isSchemaCacheMissing(error, ['porcentaje_venta'])) {
+        const fb = await supabase.from('vendedores').update(payloadBase).eq('id', editando.id).select('id').single();
+        data = fb.data; error = fb.error;
+      }
+    } else {
+      const res = await supabase.from('vendedores').insert(payload).select('id').single();
+      data = res.data; error = res.error;
+      if (error && isSchemaCacheMissing(error, ['porcentaje_venta'])) {
+        const fb = await supabase.from('vendedores').insert(payloadBase).select('id').single();
+        data = fb.data; error = fb.error;
+      }
+    }
     setSaving(false);
-    if (error) { toast.error(error.message); return; }
+    if (error) { toast.error(getErrorMessage(error)); return; }
     await logAudit(supabase, { modulo: 'Configuración', entidad: 'Vendedor', accion: editando ? 'editar' : 'crear', descripcion: `${editando ? 'Editó' : 'Creó'} el vendedor ${payload.nombre}`, registroId: data?.id || editando?.id || null });
     toast.success(editando ? 'Actualizado' : 'Creado');
     setShowModal(false);
