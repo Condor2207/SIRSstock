@@ -5,10 +5,11 @@ import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { formatCurrency, formatDate, formatNumber, diasHastaVencimiento, estadoVencimiento, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line } from 'recharts';
-import { Download, BarChart2, Package, Users, AlertTriangle, Loader2, CreditCard, BadgePercent, Receipt, FileText } from 'lucide-react';
+import { Download, BarChart2, Package, Users, AlertTriangle, Loader2, CreditCard, BadgePercent, Receipt, FileText, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
+import * as XLSX from 'xlsx';
 
-type TabType = 'ventas' | 'stock' | 'cobrar' | 'vencimientos' | 'pagar' | 'comisiones' | 'gastos_credito' | 'rg90';
+type TabType = 'ventas' | 'stock' | 'cobrar' | 'vencimientos' | 'pagar' | 'comisiones' | 'gastos_credito' | 'gastos_unificados' | 'rg90';
 
 export default function ReportesPage() {
   const supabase = createClient();
@@ -26,6 +27,7 @@ export default function ReportesPage() {
   const [pagarData, setPagarData] = useState<any[]>([]);
   const [comisionesData, setComisionesData] = useState<any[]>([]);
   const [gastosCreditoData, setGastosCreditoData] = useState<any[]>([]);
+  const [gastosUnificadosData, setGastosUnificadosData] = useState<any[]>([]);
 
   useEffect(() => { loadData(); }, [tab, desde, hasta]);
 
@@ -106,6 +108,54 @@ export default function ReportesPage() {
           throw error;
         }
         setGastosCreditoData(data || []);
+      } else if (tab === 'gastos_unificados') {
+        // Compras pendientes de pago
+        const { data: comprasData } = await supabase
+          .from('compras')
+          .select('numero, fecha, total, saldo_pendiente, proveedores(nombre), compra_cuotas(numero_cuota, fecha_vencimiento, monto, estado)')
+          .gt('saldo_pendiente', 0)
+          .order('fecha', { ascending: false });
+        const comprasRows = (comprasData || []).map((c: any) => {
+          const cuotasPend = (c.compra_cuotas || []).filter((x: any) => x.estado === 'pendiente');
+          const proxVenc = cuotasPend.sort((a: any, b: any) => a.fecha_vencimiento?.localeCompare(b.fecha_vencimiento))[0];
+          return {
+            origen: 'Compra' as const,
+            titulo: `Compra ${c.numero}`,
+            proveedor: c.proveedores?.nombre || '—',
+            fecha: c.fecha,
+            monto: c.total,
+            saldo_pendiente: c.saldo_pendiente,
+            fecha_vencimiento: proxVenc?.fecha_vencimiento || null,
+            categoria: 'Compra a crédito',
+          };
+        });
+        // Gastos a crédito pendientes
+        let gastosRows: any[] = [];
+        try {
+          const { data: gastosData, error: gastosError } = await supabase
+            .from('gastos')
+            .select('titulo, fecha, monto, saldo_pendiente, fecha_vencimiento, categoria, proveedores(nombre)')
+            .eq('condicion', 'credito')
+            .order('fecha_vencimiento', { ascending: true });
+          if (!gastosError) {
+            gastosRows = (gastosData || []).map((g: any) => ({
+              origen: 'Gasto' as const,
+              titulo: g.titulo,
+              proveedor: g.proveedores?.nombre || '—',
+              fecha: g.fecha,
+              monto: g.monto,
+              saldo_pendiente: g.saldo_pendiente ?? g.monto,
+              fecha_vencimiento: g.fecha_vencimiento || null,
+              categoria: g.categoria || 'Gasto',
+            }));
+          }
+        } catch {
+          // gastos_credito might not be available yet
+        }
+        const unified = [...comprasRows, ...gastosRows].sort((a, b) =>
+          (a.fecha_vencimiento || '9999') < (b.fecha_vencimiento || '9999') ? -1 : 1
+        );
+        setGastosUnificadosData(unified);
       }
     } catch (e) {
       console.error(e);
@@ -115,41 +165,52 @@ export default function ReportesPage() {
     }
   }
 
-  function exportCSV() {
-    let rows: string[][] = [];
+  function exportXLSX() {
+    let data: Record<string, any>[] = [];
+    let sheetName = 'Reporte';
     let filename = 'reporte';
 
     if (tab === 'ventas') {
       filename = `ventas_${desde}_${hasta}`;
-      rows = [['Fecha', 'Total ($)', 'Cantidad ventas'], ...ventasData.map(v => [v.fecha, v.total.toFixed(2), v.qty])];
+      sheetName = 'Ventas';
+      data = ventasData.map(v => ({ Fecha: v.fecha, 'Total ($)': v.total, 'Cantidad ventas': v.qty }));
     } else if (tab === 'stock') {
       filename = 'stock_actual';
-      rows = [['SKU', 'Producto', 'Stock actual', 'Stock mínimo', 'Unidad'], ...stockData.map(p => [p.sku, p.nombre, p.stock_actual, p.stock_minimo, p.unidad])];
+      sheetName = 'Stock';
+      data = stockData.map(p => ({ SKU: p.sku, Producto: p.nombre, 'Stock actual': p.stock_actual, 'Stock mínimo': p.stock_minimo, Unidad: p.unidad }));
     } else if (tab === 'cobrar') {
       filename = 'cuentas_cobrar';
-      rows = [['Cliente', 'Documento', 'Teléfono', 'Límite crédito', 'Saldo pendiente'], ...cobrarData.map(c => [c.nombre, c.documento || '', c.telefono || '', c.limite_credito, c.saldo_pendiente])];
+      sheetName = 'Cuentas a cobrar';
+      data = cobrarData.map(c => ({ Cliente: c.nombre, Documento: c.documento || '', Teléfono: c.telefono || '', 'Límite crédito': c.limite_credito, 'Saldo pendiente': c.saldo_pendiente }));
     } else if (tab === 'pagar') {
       filename = 'cuentas_pagar';
-      rows = [['Compra', 'Proveedor', 'Fecha', 'Total'], ...pagarData.map(p => [p.numero, p.proveedores?.nombre || '', p.fecha, p.total])];
+      sheetName = 'Cuentas a pagar';
+      data = pagarData.map(p => ({ Compra: p.numero, Proveedor: p.proveedores?.nombre || '', Fecha: p.fecha, Total: p.total }));
     } else if (tab === 'comisiones') {
       filename = 'comisiones_pendientes';
-      rows = [['Vendedor', 'Cantidad', 'Total pendiente'], ...comisionesData.map(c => [c.nombre, c.cantidad, c.total])];
+      sheetName = 'Comisiones';
+      data = comisionesData.map(c => ({ Vendedor: c.nombre, Cantidad: c.cantidad, 'Total pendiente': c.total }));
     } else if (tab === 'gastos_credito') {
       filename = 'gastos_credito';
-      rows = [['Gasto', 'Proveedor', 'Fecha', 'Monto', 'Vencimiento'], ...gastosCreditoData.map(g => [g.titulo, g.proveedores?.nombre || '', g.fecha, g.monto, g.fecha_vencimiento || ''])];
+      sheetName = 'Gastos a pagar';
+      data = gastosCreditoData.map(g => ({ Gasto: g.titulo, Proveedor: g.proveedores?.nombre || '', Fecha: g.fecha, Monto: g.monto, Vencimiento: g.fecha_vencimiento || '' }));
     } else if (tab === 'vencimientos') {
       filename = 'lotes_vencimiento';
-      rows = [['Producto', 'SKU', 'Lote', 'Vencimiento', 'Stock', 'Días restantes'],
-        ...vencimientosData.map(l => [(l as any).productos?.nombre, (l as any).productos?.sku, l.numero_lote, l.fecha_vencimiento, l.stock_actual, diasHastaVencimiento(l.fecha_vencimiento)])];
+      sheetName = 'Vencimientos';
+      data = vencimientosData.map(l => ({ Producto: (l as any).productos?.nombre, SKU: (l as any).productos?.sku, Lote: l.numero_lote, Vencimiento: l.fecha_vencimiento, Stock: l.stock_actual, 'Días restantes': diasHastaVencimiento(l.fecha_vencimiento) }));
+    } else if (tab === 'gastos_unificados') {
+      filename = 'gastos_unificados';
+      sheetName = 'Gastos Unificados';
+      data = gastosUnificadosData.map(r => ({ Origen: r.origen, Concepto: r.titulo, Proveedor: r.proveedor, Categoría: r.categoria, Fecha: r.fecha, Monto: r.monto, 'Saldo pendiente': r.saldo_pendiente, Vencimiento: r.fecha_vencimiento || '' }));
     }
 
-    const csv = rows.map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n');
-    const blob = new Blob(['\uFEFF' + csv], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url; a.download = `${filename}.csv`; a.click();
-    URL.revokeObjectURL(url);
-    toast.success('CSV exportado');
+    if (data.length === 0) { toast.error('Sin datos para exportar'); return; }
+
+    const ws = XLSX.utils.json_to_sheet(data);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, sheetName);
+    XLSX.writeFile(wb, `${filename}.xlsx`);
+    toast.success('Excel exportado');
   }
 
   const totalVentas = ventasData.reduce((s, v) => s + v.total, 0);
@@ -168,6 +229,7 @@ export default function ReportesPage() {
     { id: 'pagar', label: 'Cuentas a pagar', icon: CreditCard },
     { id: 'comisiones', label: 'Comisiones pend.', icon: BadgePercent },
     { id: 'gastos_credito', label: 'Gastos a pagar', icon: Receipt },
+    { id: 'gastos_unificados', label: 'Gastos unificados', icon: Layers },
     { id: 'vencimientos', label: 'Lotes por vencer', icon: AlertTriangle },
     { id: 'rg90', label: 'RG90', icon: FileText },
   ];
@@ -196,8 +258,8 @@ export default function ReportesPage() {
               <input type="date" className="input py-1.5 w-36" value={hasta} onChange={e => setHasta(e.target.value)} />
             </div>
           )}
-          <button onClick={exportCSV} className="btn-secondary flex items-center gap-2 text-sm ml-auto">
-            <Download className="w-4 h-4" /> Exportar CSV
+          <button onClick={exportXLSX} className="btn-secondary flex items-center gap-2 text-sm ml-auto">
+            <Download className="w-4 h-4" /> Exportar Excel
           </button>
         </div>
 
@@ -519,6 +581,74 @@ export default function ReportesPage() {
                       </tbody>
                     </table>
                   </div>
+                )}
+              </div>
+            )}
+            {/* GASTOS UNIFICADOS */}
+            {tab === 'gastos_unificados' && (
+              <div className="space-y-4">
+                {gastosUnificadosData.length === 0 ? (
+                  <div className="card p-12 text-center text-gray-400">No hay gastos ni compras pendientes de pago</div>
+                ) : (
+                  <>
+                    <div className="flex gap-3 flex-wrap">
+                      <div className="card p-4 flex-1 min-w-[160px]">
+                        <p className="text-xs text-gray-500">Total a pagar</p>
+                        <p className="text-2xl font-bold text-red-500">{formatCurrency(gastosUnificadosData.reduce((s, r) => s + (r.saldo_pendiente || r.monto || 0), 0))}</p>
+                      </div>
+                      <div className="card p-4 flex-1 min-w-[160px]">
+                        <p className="text-xs text-gray-500">Compras</p>
+                        <p className="text-xl font-bold text-orange-500">{formatCurrency(gastosUnificadosData.filter(r => r.origen === 'Compra').reduce((s, r) => s + (r.saldo_pendiente || 0), 0))}</p>
+                      </div>
+                      <div className="card p-4 flex-1 min-w-[160px]">
+                        <p className="text-xs text-gray-500">Gastos</p>
+                        <p className="text-xl font-bold text-purple-500">{formatCurrency(gastosUnificadosData.filter(r => r.origen === 'Gasto').reduce((s, r) => s + (r.saldo_pendiente || r.monto || 0), 0))}</p>
+                      </div>
+                    </div>
+                    <div className="card overflow-hidden">
+                      <table className="w-full">
+                        <thead className="bg-gray-50 dark:bg-gray-800/50">
+                          <tr>
+                            <th className="table-header">Origen</th>
+                            <th className="table-header">Concepto</th>
+                            <th className="table-header">Proveedor</th>
+                            <th className="table-header">Categoría</th>
+                            <th className="table-header">Fecha</th>
+                            <th className="table-header">Monto</th>
+                            <th className="table-header">Saldo pend.</th>
+                            <th className="table-header">Vencimiento</th>
+                            <th className="table-header">Días</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                          {gastosUnificadosData.map((r, i) => {
+                            const dias = r.fecha_vencimiento ? diasHastaVencimiento(r.fecha_vencimiento) : null;
+                            return (
+                              <tr key={i} className={typeof dias === 'number' && dias <= 7 ? 'bg-red-50/50 dark:bg-red-900/10' : ''}>
+                                <td className="table-cell">
+                                  <span className={`badge text-xs ${r.origen === 'Compra' ? 'bg-orange-100 text-orange-700' : 'bg-purple-100 text-purple-700'}`}>{r.origen}</span>
+                                </td>
+                                <td className="table-cell font-medium text-sm">{r.titulo}</td>
+                                <td className="table-cell text-sm text-gray-500">{r.proveedor}</td>
+                                <td className="table-cell text-xs text-gray-400">{r.categoria}</td>
+                                <td className="table-cell text-xs">{formatDate(r.fecha)}</td>
+                                <td className="table-cell font-semibold">{formatCurrency(r.monto)}</td>
+                                <td className="table-cell font-bold text-red-500">{formatCurrency(r.saldo_pendiente ?? r.monto)}</td>
+                                <td className="table-cell text-xs">{r.fecha_vencimiento ? formatDate(r.fecha_vencimiento) : '—'}</td>
+                                <td className="table-cell">
+                                  {typeof dias === 'number' ? (
+                                    <span className={`badge ${dias <= 0 ? 'bg-red-100 text-red-700' : dias <= 7 ? 'bg-orange-100 text-orange-700' : dias <= 30 ? 'bg-yellow-100 text-yellow-700' : 'bg-gray-100 text-gray-600'}`}>
+                                      {dias <= 0 ? 'Vencido' : `${dias}d`}
+                                    </span>
+                                  ) : '—'}
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </>
                 )}
               </div>
             )}

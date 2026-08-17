@@ -5,7 +5,7 @@ import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
 import { formatCurrency, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
-import { Plus, Search, Edit2, Trash2, X, Loader2, Package } from 'lucide-react';
+import { Plus, Search, Edit2, Trash2, X, Loader2, Package, ToggleLeft, ToggleRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SearchSelect } from '@/components/SearchSelect';
 import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
@@ -24,6 +24,7 @@ export default function ProductosPage() {
   const [listas, setListas] = useState<ListaPrecios[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [filtroActivo, setFiltroActivo] = useState<'activo' | 'inactivo' | 'todos'>('activo');
   const [showModal, setShowModal] = useState(false);
   const [editando, setEditando] = useState<Producto | null>(null);
   const [saving, setSaving] = useState(false);
@@ -123,10 +124,18 @@ export default function ProductosPage() {
   const gruposFiltrados = grupos.filter(g => g.linea_id === form.linea_id);
 
   async function handleSave() {
-    if (!form.sku || !form.nombre) { toast.error('SKU y nombre son obligatorios'); return; }
+    if (!form.nombre) { toast.error('El nombre es obligatorio'); return; }
+    // Validate SKU uniqueness (excluding current product when editing)
+    const skuVal = form.sku.trim().toUpperCase();
+    if (skuVal) {
+      let skuQuery = supabase.from('productos').select('id').eq('sku', skuVal);
+      if (editando) skuQuery = skuQuery.neq('id', editando.id);
+      const { data: skuCheck } = await skuQuery.maybeSingle();
+      if (skuCheck) { toast.error(`Ya existe otro producto con el SKU "${skuVal}"`); return; }
+    }
     setSaving(true);
     const payloadBase: any = {
-      sku: form.sku.toUpperCase(), nombre: form.nombre,
+      ...(skuVal ? { sku: skuVal } : {}), nombre: form.nombre,
       descripcion: form.descripcion || null,
       categoria_id: form.categoria_id || null,
       unidad_medida: form.unidad_medida || 'Unidad',
@@ -199,18 +208,31 @@ export default function ProductosPage() {
   }
 
   async function handleDelete(p: Producto) {
-    if (!window.confirm(`¿Eliminar el producto "${p.nombre}"?`)) return;
-    const { error } = await supabase.from('productos').delete().eq('id', p.id);
+    if (!window.confirm(`¿Inactivar el producto "${p.nombre}"? Podrás reactivarlo luego.`)) return;
+    const { error } = await supabase.from('productos').update({ activo: false }).eq('id', p.id);
     if (error) { toast.error(getErrorMessage(error)); return; }
-    await logAudit(supabase, { modulo: 'Productos', entidad: 'Producto', accion: 'borrar', descripcion: `Eliminó el producto ${p.nombre}`, registroId: p.id });
-    toast.success('Producto eliminado');
+    await logAudit(supabase, { modulo: 'Productos', entidad: 'Producto', accion: 'borrar', descripcion: `Inactivó el producto ${p.nombre}`, registroId: p.id });
+    toast.success('Producto inactivado');
     loadData();
   }
 
-  const filteredRaw = productos.filter(p =>
-    p.nombre.toLowerCase().includes(search.toLowerCase()) ||
-    p.sku.toLowerCase().includes(search.toLowerCase())
-  );
+  async function handleToggleActivo(p: Producto) {
+    const nuevoEstado = !p.activo;
+    const { error } = await supabase.from('productos').update({ activo: nuevoEstado }).eq('id', p.id);
+    if (error) { toast.error(getErrorMessage(error)); return; }
+    await logAudit(supabase, { modulo: 'Productos', entidad: 'Producto', accion: 'editar', descripcion: `${nuevoEstado ? 'Activó' : 'Inactivó'} el producto ${p.nombre}`, registroId: p.id });
+    toast.success(nuevoEstado ? 'Producto activado' : 'Producto inactivado');
+    loadData();
+  }
+
+  const filteredRaw = productos.filter(p => {
+    if (filtroActivo === 'activo' && !p.activo) return false;
+    if (filtroActivo === 'inactivo' && p.activo) return false;
+    return (
+      p.nombre.toLowerCase().includes(search.toLowerCase()) ||
+      p.sku.toLowerCase().includes(search.toLowerCase())
+    );
+  });
   const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filteredRaw as any[]);
   const { paginated: filtered, page, setPage, pageSize, setPageSize, totalPages, total } = usePagination(filteredSorted);
 
@@ -223,9 +245,19 @@ export default function ProductosPage() {
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
             <input className="input pl-9" placeholder="Buscar por nombre o SKU..." value={search} onChange={e => setSearch(e.target.value)} />
           </div>
-          <button onClick={openNew} className="btn-primary flex items-center gap-2">
-            <Plus className="w-4 h-4" /> Nuevo producto
-          </button>
+          <div className="flex items-center gap-2">
+            <div className="flex rounded-lg overflow-hidden border border-gray-200 dark:border-gray-700 text-sm">
+              {(['activo', 'inactivo', 'todos'] as const).map(f => (
+                <button key={f} onClick={() => setFiltroActivo(f)}
+                  className={`px-3 py-1.5 capitalize transition-colors ${filtroActivo === f ? 'bg-blue-600 text-white' : 'bg-white dark:bg-gray-800 text-gray-600 dark:text-gray-300 hover:bg-gray-50 dark:hover:bg-gray-700'}`}>
+                  {f === 'activo' ? 'Activos' : f === 'inactivo' ? 'Inactivos' : 'Todos'}
+                </button>
+              ))}
+            </div>
+            <button onClick={openNew} className="btn-primary flex items-center gap-2">
+              <Plus className="w-4 h-4" /> Nuevo producto
+            </button>
+          </div>
         </div>
 
         <div className="card overflow-hidden">
@@ -248,12 +280,13 @@ export default function ProductosPage() {
                     <SortableTh label="Unidad" sortKey="unidad_medida" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Precio Venta" sortKey="precio_venta" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
                     <SortableTh label="Stock" sortKey="stock_actual" currentKey={sortKey} currentDir={sortDir} onSort={handleSort} />
+                    <th className="table-header">Estado</th>
                     <th className="table-header">Acciones</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                   {filtered.map(p => (
-                    <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
+                    <tr key={p.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${!p.activo ? 'opacity-60' : ''}`}>
                       <td className="table-cell text-xs text-gray-400 font-mono">{(p as any).codigo_interno || '—'}</td>
                       <td className="table-cell font-mono text-xs font-semibold text-blue-600">{p.sku}</td>
                       <td className="table-cell font-medium">{p.nombre}</td>
@@ -266,11 +299,18 @@ export default function ProductosPage() {
                         </span>
                       </td>
                       <td className="table-cell">
+                        <button onClick={() => handleToggleActivo(p)} title={p.activo ? 'Inactivar' : 'Activar'}
+                          className={`flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-full transition-colors ${p.activo ? 'bg-emerald-100 text-emerald-700 hover:bg-emerald-200' : 'bg-gray-100 text-gray-500 hover:bg-gray-200'}`}>
+                          {p.activo ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+                          {p.activo ? 'Activo' : 'Inactivo'}
+                        </button>
+                      </td>
+                      <td className="table-cell">
                         <div className="flex items-center gap-1">
                           <button onClick={() => openEdit(p)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-blue-600" title="Editar">
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => handleDelete(p)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500" title="Eliminar">
+                          <button onClick={() => handleDelete(p)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500" title="Inactivar">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>
@@ -317,8 +357,8 @@ export default function ProductosPage() {
                   )}
                   <div className="grid grid-cols-2 gap-4">
                     <div>
-                      <label className="label">SKU *</label>
-                      <input className="input uppercase" value={form.sku} onChange={e => setForm(f => ({ ...f, sku: e.target.value.toUpperCase() }))} placeholder="EDU-001" />
+                      <label className="label">SKU <span className="text-gray-400 font-normal">(opcional — se auto-genera si está vacío)</span></label>
+                      <input className="input uppercase" value={form.sku} onChange={e => setForm(f => ({ ...f, sku: e.target.value.toUpperCase() }))} placeholder="Ej: EDU-001 (o dejar vacío)" />
                     </div>
                     <div>
                       <label className="label">Código de barras</label>
