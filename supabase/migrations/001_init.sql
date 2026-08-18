@@ -270,23 +270,29 @@ ALTER TABLE gastos ENABLE ROW LEVEL SECURITY;
 ALTER TABLE movimientos_stock ENABLE ROW LEVEL SECURITY;
 
 -- Políticas: usuarios autenticados tienen acceso completo
-CREATE POLICY "auth_all_profiles" ON profiles FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_categorias" ON categorias FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_productos" ON productos FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_lotes" ON lotes FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_clientes" ON clientes FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_proveedores" ON proveedores FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_producciones" ON producciones FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_produccion_items" ON produccion_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_produccion_insumos" ON produccion_insumos FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_ventas" ON ventas FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_venta_items" ON venta_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_venta_cuotas" ON venta_cuotas FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_venta_pagos" ON venta_pagos FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_compras" ON compras FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_compra_items" ON compra_items FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_gastos" ON gastos FOR ALL TO authenticated USING (true) WITH CHECK (true);
-CREATE POLICY "auth_all_movimientos" ON movimientos_stock FOR ALL TO authenticated USING (true) WITH CHECK (true);
+DO $$
+DECLARE
+  tabla TEXT;
+  politica TEXT;
+BEGIN
+  FOR tabla, politica IN
+    SELECT * FROM (VALUES
+      ('profiles', 'auth_all_profiles'), ('categorias', 'auth_all_categorias'),
+      ('productos', 'auth_all_productos'), ('lotes', 'auth_all_lotes'),
+      ('clientes', 'auth_all_clientes'), ('proveedores', 'auth_all_proveedores'),
+      ('producciones', 'auth_all_producciones'), ('produccion_items', 'auth_all_produccion_items'),
+      ('produccion_insumos', 'auth_all_produccion_insumos'), ('ventas', 'auth_all_ventas'),
+      ('venta_items', 'auth_all_venta_items'), ('venta_cuotas', 'auth_all_venta_cuotas'),
+      ('venta_pagos', 'auth_all_venta_pagos'), ('compras', 'auth_all_compras'),
+      ('compra_items', 'auth_all_compra_items'), ('gastos', 'auth_all_gastos'),
+      ('movimientos_stock', 'auth_all_movimientos')
+    ) AS politicas(tabla, politica)
+  LOOP
+    IF NOT EXISTS (SELECT 1 FROM pg_policies WHERE schemaname = 'public' AND tablename = tabla AND policyname = politica) THEN
+      EXECUTE format('CREATE POLICY %I ON public.%I FOR ALL TO authenticated USING (true) WITH CHECK (true)', politica, tabla);
+    END IF;
+  END LOOP;
+END $$;
 
 -- ============================================================
 -- FUNCIONES Y TRIGGERS
