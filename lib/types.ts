@@ -347,6 +347,17 @@ export interface Marca {
   activo: boolean;
   created_at: string;
   lineas?: Linea[];
+  grupos?: Grupo[];
+}
+
+export interface MarcaLinea {
+  marca_id: string;
+  linea_id: string;
+}
+
+export interface MarcaGrupo {
+  marca_id: string;
+  grupo_id: string;
 }
 
 export interface Linea {

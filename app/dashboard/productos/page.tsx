@@ -9,7 +9,7 @@ import { Plus, Search, Edit2, Trash2, X, Loader2, Package, ToggleLeft, ToggleRig
 import toast from 'react-hot-toast';
 import { SearchSelect } from '@/components/SearchSelect';
 import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
-import type { Producto, Categoria, Clasificacion, TasaIva, Marca, Linea, Grupo, UnidadMedida, ListaPrecios } from '@/lib/types';
+import type { Producto, Categoria, Clasificacion, TasaIva, Marca, Linea, Grupo, UnidadMedida, ListaPrecios, MarcaLinea, MarcaGrupo } from '@/lib/types';
 
 export default function ProductosPage() {
   const supabase = createClient();
@@ -20,6 +20,8 @@ export default function ProductosPage() {
   const [marcas, setMarcas] = useState<Marca[]>([]);
   const [lineas, setLineas] = useState<Linea[]>([]);
   const [grupos, setGrupos] = useState<Grupo[]>([]);
+  const [marcaLineas, setMarcaLineas] = useState<MarcaLinea[]>([]);
+  const [marcaGrupos, setMarcaGrupos] = useState<MarcaGrupo[]>([]);
   const [unidades, setUnidades] = useState<UnidadMedida[]>([]);
   const [listas, setListas] = useState<ListaPrecios[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,7 +49,7 @@ export default function ProductosPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const [prodRes, catRes, clasRes, tivaRes, marcaRes, lineaRes, grupoRes, unidRes, listaRes] = await Promise.all([
+    const [prodRes, catRes, clasRes, tivaRes, marcaRes, lineaRes, grupoRes, unidRes, listaRes, marcaLineasRes, marcaGruposRes] = await Promise.all([
       supabase.from('productos').select('*, categoria:categorias(nombre), clasificacion:clasificaciones(nombre), tasa_iva_ref:tasas_iva(nombre,porcentaje)').order('nombre'),
       supabase.from('categorias').select('*').order('nombre'),
       supabase.from('clasificaciones').select('*').eq('activo', true).order('nombre'),
@@ -57,6 +59,8 @@ export default function ProductosPage() {
       supabase.from('grupos').select('*').eq('activo', true).order('nombre'),
       supabase.from('unidades_medida').select('*').eq('activo', true).order('nombre'),
       supabase.from('listas_precios').select('*').eq('activo', true).order('nombre'),
+      supabase.from('marca_lineas').select('marca_id,linea_id'),
+      supabase.from('marca_grupos').select('marca_id,grupo_id'),
     ]);
     setProductos(prodRes.data as any[] || []);
     setCategorias(catRes.data as Categoria[] || []);
@@ -65,6 +69,8 @@ export default function ProductosPage() {
     setMarcas(marcaRes.data as Marca[] || []);
     setLineas(lineaRes.data as Linea[] || []);
     setGrupos(grupoRes.data as Grupo[] || []);
+    setMarcaLineas(marcaLineasRes.data as MarcaLinea[] || []);
+    setMarcaGrupos(marcaGruposRes.data as MarcaGrupo[] || []);
     setUnidades(unidRes.data as UnidadMedida[] || []);
     setListas(listaRes.data as ListaPrecios[] || []);
     setLoading(false);
@@ -120,8 +126,8 @@ export default function ProductosPage() {
     return d.toLocaleDateString('es-PY');
   }
 
-  const lineasFiltradas = lineas.filter(l => l.marca_id === form.marca_id);
-  const gruposFiltrados = grupos.filter(g => g.linea_id === form.linea_id);
+  const lineasFiltradas = lineas.filter(l => marcaLineas.some(x => x.marca_id === form.marca_id && x.linea_id === l.id));
+  const gruposFiltrados = grupos.filter(g => marcaGrupos.some(x => x.marca_id === form.marca_id && x.grupo_id === g.id));
 
   async function handleSave() {
     if (!form.nombre) { toast.error('El nombre es obligatorio'); return; }
@@ -432,7 +438,7 @@ export default function ProductosPage() {
                       <SearchSelect
                         options={lineasFiltradas.map(l => ({ value: l.id, label: l.nombre }))}
                         value={form.linea_id}
-                        onChange={v => setForm(f => ({ ...f, linea_id: v, grupo_id: '' }))}
+                        onChange={v => setForm(f => ({ ...f, linea_id: v }))}
                         placeholder="—"
                         disabled={!form.marca_id}
                       />
@@ -444,7 +450,7 @@ export default function ProductosPage() {
                         value={form.grupo_id}
                         onChange={v => setForm(f => ({ ...f, grupo_id: v }))}
                         placeholder="—"
-                        disabled={!form.linea_id}
+                        disabled={!form.marca_id}
                       />
                     </div>
                   </div>
