@@ -138,7 +138,7 @@ export default function ComprasPage() {
       const { count } = await supabase.from('compras').select('*', { count: 'exact', head: true });
       const numCompra = `C-${String((count || 0) + 1).padStart(5, '0')}`;
 
-      const compraPayloadBase = {
+      const compraPayloadBase: Record<string, any> = {
         numero: numCompra,
         fecha: new Date().toISOString().split('T')[0],
         proveedor_id: form.proveedor_id || null,
@@ -152,18 +152,17 @@ export default function ComprasPage() {
         estado: form.condicion_pago === 'contado' ? 'pagado' : 'pendiente',
         notas: form.notas || null,
       };
-      let compraRes = await supabase.from('compras').insert(
-        schemaCompatNumeroFactura
-          ? compraPayloadBase
-          : { ...compraPayloadBase, numero_factura: form.numero_factura || null }
-      ).select().single();
+      const compraPayload: Record<string, any> = schemaCompatNumeroFactura
+        ? compraPayloadBase
+        : { ...compraPayloadBase, numero_factura: form.numero_factura || null };
+      let compraRes = await supabase.from('compras').insert(compraPayload as any).select().single();
       if (compraRes.error && isSchemaCacheMissing(compraRes.error, ['compras', 'numero_factura'])) {
         setSchemaCompatNumeroFactura(true);
         if (!compatToastShown.current) {
           toast('La base de datos no tiene aún la columna N° Factura en compras. Se guardará sin ese dato hasta ejecutar la migración.');
           compatToastShown.current = true;
         }
-        compraRes = await supabase.from('compras').insert(compraPayloadBase).select().single();
+        compraRes = await supabase.from('compras').insert(compraPayloadBase as any).select().single();
       }
       const { data: compra, error } = compraRes;
       if (error) throw error;
