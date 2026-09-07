@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, porcentajeCredito } from '@/lib/utils';
+import { formatCurrency, porcentajeCredito, toInteger, toIntegerInput } from '@/lib/utils';
 import { Plus, Search, Edit2, Trash2, Users, X, Loader2, AlertTriangle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Cliente, ListaPrecios, Vendedor, CondicionVenta } from '@/lib/types';
@@ -57,7 +57,7 @@ export default function ClientesPage() {
     setForm({
       nombre: c.nombre, documento: c.documento || '', tipo_documento: c.tipo_documento,
       direccion: c.direccion || '', telefono: c.telefono || '', email: c.email || '',
-      limite_credito: String(c.limite_credito),
+      limite_credito: String(toInteger(c.limite_credito, 0)),
       lista_precios_id: (c as any).lista_precios_id || '',
       vendedor_id: (c as any).vendedor_id || '',
       condicion_venta_id: (c as any).condicion_venta_id || '',
@@ -90,7 +90,7 @@ export default function ClientesPage() {
       nombre, documento,
       tipo_documento: form.tipo_documento, direccion: form.direccion.trim() || null,
       telefono: telefono || null, email: email || null,
-      limite_credito: parseFloat(form.limite_credito) || 0,
+      limite_credito: toInteger(form.limite_credito, 0),
       lista_precios_id: form.lista_precios_id || null,
       vendedor_id: form.vendedor_id || null,
       condicion_venta_id: form.condicion_venta_id || null,
@@ -294,7 +294,7 @@ export default function ClientesPage() {
                   </div>
                   <div>
                     <label className="label">Límite de crédito (Gs.)</label>
-                    <input type="number" min="0" className="input" value={form.limite_credito} onChange={e => setForm(f => ({ ...f, limite_credito: e.target.value }))} />
+                    <input type="number" min="0" step="1" inputMode="numeric" className="input" value={form.limite_credito} onChange={e => setForm(f => ({ ...f, limite_credito: toIntegerInput(e.target.value) }))} />
                     <p className="text-xs text-gray-400 mt-1">El límite es informativo. No bloquea ventas.</p>
                   </div>
                 </div>

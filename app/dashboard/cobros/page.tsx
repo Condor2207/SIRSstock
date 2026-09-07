@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, formatDate, getErrorMessage, isSchemaCacheMissing, toDigitsOnly } from '@/lib/utils';
+import { formatCurrency, formatDate, getErrorMessage, isSchemaCacheMissing, toDigitsOnly, toInteger } from '@/lib/utils';
 import { Plus, Search, Eye, X, Loader2, Handshake, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -103,7 +103,7 @@ export default function CobrosPage() {
     setFacturasSelec(prev => [...prev, {
       venta_id: venta.id, numero: venta.numero, total: venta.total,
       saldo_pendiente: venta.saldo_pendiente, fecha: venta.fecha,
-      monto_aplicado: venta.saldo_pendiente,
+      monto_aplicado: toInteger(venta.saldo_pendiente, 0),
     }]);
   }
 
@@ -112,10 +112,10 @@ export default function CobrosPage() {
     setGastosSelec(prev => [...prev, {
       gasto_id: gasto.id,
       categoria: gasto.categoria || gasto.titulo,
-      monto: gasto.monto,
-      saldo_pendiente: gasto.saldo_pendiente || gasto.monto,
+      monto: toInteger(gasto.monto, 0),
+      saldo_pendiente: toInteger(gasto.saldo_pendiente || gasto.monto, 0),
       fecha: gasto.fecha,
-      monto_aplicado: gasto.saldo_pendiente || gasto.monto,
+      monto_aplicado: toInteger(gasto.saldo_pendiente || gasto.monto, 0),
     }]);
   }
 
@@ -471,8 +471,8 @@ export default function CobrosPage() {
                         <span className="text-gray-500 text-xs w-20 shrink-0">Saldo: {formatCurrency(f.saldo_pendiente)}</span>
                         <div className="flex items-center gap-1 flex-1">
                           <label className="text-xs text-gray-500 shrink-0">Monto a aplicar:</label>
-                          <input type="number" min="0" className="input py-1 text-sm max-w-[140px]" value={f.monto_aplicado}
-                            onChange={e => updateFacturaMonto(f.venta_id, parseFloat(e.target.value) || 0)} />
+                          <input type="number" min="0" step="1" inputMode="numeric" className="input py-1 text-sm max-w-[140px]" value={f.monto_aplicado}
+                           onChange={e => updateFacturaMonto(f.venta_id, toInteger(e.target.value, 0))} />
                         </div>
                         <button onClick={() => setFacturasSelec(prev => prev.filter(x => x.venta_id !== f.venta_id))} className="text-red-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
@@ -483,8 +483,8 @@ export default function CobrosPage() {
                         <span className="text-gray-500 text-xs w-20 shrink-0">Saldo: {formatCurrency(g.saldo_pendiente)}</span>
                         <div className="flex items-center gap-1 flex-1">
                           <label className="text-xs text-gray-500 shrink-0">Monto a aplicar:</label>
-                          <input type="number" min="0" className="input py-1 text-sm max-w-[140px]" value={g.monto_aplicado}
-                            onChange={e => updateGastoMonto(g.gasto_id, parseFloat(e.target.value) || 0)} />
+                          <input type="number" min="0" step="1" inputMode="numeric" className="input py-1 text-sm max-w-[140px]" value={g.monto_aplicado}
+                           onChange={e => updateGastoMonto(g.gasto_id, toInteger(e.target.value, 0))} />
                         </div>
                         <button onClick={() => setGastosSelec(prev => prev.filter(x => x.gasto_id !== g.gasto_id))} className="text-red-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
@@ -503,7 +503,7 @@ export default function CobrosPage() {
                     <input className="input py-1.5" placeholder="N° Retención" value={r.numero_retencion} onChange={e => setRetenciones(prev => prev.map((x, i) => i === idx ? { ...x, numero_retencion: toDigitsOnly(e.target.value) } : x))} />
                     <input className="input py-1.5" placeholder="Concepto" value={r.concepto} onChange={e => setRetenciones(prev => prev.map((x, i) => i === idx ? { ...x, concepto: e.target.value } : x))} />
                     <div className="flex gap-1">
-                      <input type="number" className="input py-1.5 flex-1" placeholder="Monto" value={r.monto} onChange={e => setRetenciones(prev => prev.map((x, i) => i === idx ? { ...x, monto: parseFloat(e.target.value) || 0 } : x))} />
+                      <input type="number" min="0" step="1" inputMode="numeric" className="input py-1.5 flex-1" placeholder="Monto" value={r.monto} onChange={e => setRetenciones(prev => prev.map((x, i) => i === idx ? { ...x, monto: toInteger(e.target.value, 0) } : x))} />
                       <button onClick={() => setRetenciones(prev => prev.filter((_, i) => i !== idx))} className="text-red-400"><Trash2 className="w-4 h-4" /></button>
                     </div>
                   </div>
@@ -531,7 +531,7 @@ export default function CobrosPage() {
                       </div>
                       <div>
                         <label className="label text-xs">Monto</label>
-                        <input type="number" min="0" className="input py-1.5" value={m.monto} onChange={e => setMedios(prev => prev.map((x, i) => i === idx ? { ...x, monto: parseFloat(e.target.value) || 0 } : x))} />
+                        <input type="number" min="0" step="1" inputMode="numeric" className="input py-1.5" value={m.monto} onChange={e => setMedios(prev => prev.map((x, i) => i === idx ? { ...x, monto: toInteger(e.target.value, 0) } : x))} />
                       </div>
                       {(m.tipo === 'cheque_dia' || m.tipo === 'cheque_diferido') && (
                         <>

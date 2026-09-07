@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, formatDate, estadoBadgeClass, getErrorMessage, isSchemaCacheMissing, toDigitsOnly } from '@/lib/utils';
+import { formatCurrency, formatDate, estadoBadgeClass, getErrorMessage, isSchemaCacheMissing, toDigitsOnly, toInteger, toIntegerInput } from '@/lib/utils';
 import { Plus, Search, Eye, X, Loader2, Trash2, CreditCard } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -76,12 +76,14 @@ export default function ComprasPage() {
       if (campo === 'producto_id') {
         const prod = productos.find(p => p.id === valor);
         item.producto_nombre = prod ? `${prod.sku} - ${prod.nombre}` : '';
-        item.precio_unitario = prod?.precio_compra || 0;
+        item.precio_unitario = toInteger(prod?.precio_compra || 0, 0);
         item.subtotal = item.cantidad * item.precio_unitario;
       }
       if (campo === 'cantidad' || campo === 'precio_unitario') {
-        const cant = parseFloat(String(campo === 'cantidad' ? valor : item.cantidad)) || 0;
-        const precio = parseFloat(String(campo === 'precio_unitario' ? valor : item.precio_unitario)) || 0;
+        const cant = toInteger(campo === 'cantidad' ? valor : item.cantidad, 0);
+        const precio = toInteger(campo === 'precio_unitario' ? valor : item.precio_unitario, 0);
+        item.cantidad = cant;
+        item.precio_unitario = precio;
         item.subtotal = cant * precio;
       }
       updated[idx] = item;
@@ -95,7 +97,7 @@ export default function ComprasPage() {
         .eq('producto_id', valor)
         .order('created_at', { ascending: false })
         .limit(5);
-      const historial = (data || []).map((d: any) => ({ fecha: d.compras?.fecha, precio: d.precio_unitario }));
+      const historial = (data || []).map((d: any) => ({ fecha: d.compras?.fecha, precio: toInteger(d.precio_unitario, 0) }));
       setItems(prev => {
         const updated = [...prev];
         const item = { ...updated[idx], historial };
@@ -113,7 +115,7 @@ export default function ComprasPage() {
   function removeItem(idx: number) { setItems(prev => prev.filter((_, i) => i !== idx)); }
 
   const subtotalItems = items.reduce((s, i) => s + i.subtotal, 0);
-  const compra_servicios = parseFloat(form.compra_servicios) || 0;
+  const compra_servicios = toInteger(form.compra_servicios, 0);
   const total = subtotalItems + compra_servicios;
 
   async function handleSave() {
@@ -397,17 +399,17 @@ export default function ComprasPage() {
                 )}
                 <div>
                   <label className="label">Compra de servicios (Gs.)</label>
-                  <input type="number" min="0" step="1" className="input" value={form.compra_servicios} onChange={e => setForm(f => ({ ...f, compra_servicios: e.target.value }))} placeholder="0" />
+                  <input type="number" min="0" step="1" inputMode="numeric" className="input" value={form.compra_servicios} onChange={e => setForm(f => ({ ...f, compra_servicios: toIntegerInput(e.target.value) }))} placeholder="0" />
                 </div>
                 {form.condicion_pago === 'credito' && (
                   <>
                     <div>
                       <label className="label">Plazo (días)</label>
-                      <input type="number" min="1" className="input" value={form.plazo_dias} onChange={e => setForm(f => ({ ...f, plazo_dias: e.target.value }))} placeholder="30" />
+                      <input type="number" min="1" step="1" inputMode="numeric" className="input" value={form.plazo_dias} onChange={e => setForm(f => ({ ...f, plazo_dias: toIntegerInput(e.target.value) }))} placeholder="30" />
                     </div>
                     <div>
                       <label className="label">N° Cuotas</label>
-                      <input type="number" min="1" max="48" className="input" value={form.cantidad_cuotas} onChange={e => setForm(f => ({ ...f, cantidad_cuotas: e.target.value }))} placeholder="1" />
+                      <input type="number" min="1" max="48" step="1" inputMode="numeric" className="input" value={form.cantidad_cuotas} onChange={e => setForm(f => ({ ...f, cantidad_cuotas: toIntegerInput(e.target.value) }))} placeholder="1" />
                     </div>
                   </>
                 )}
@@ -456,15 +458,15 @@ export default function ComprasPage() {
                             </div>
                             <div>
                               <label className="label text-xs">Cantidad</label>
-                              <input type="number" min="1" step="1" className="input py-1.5" value={item.cantidad} onChange={e => updateItem(idx, 'cantidad', parseFloat(e.target.value) || 0)} />
+                              <input type="number" min="1" step="1" inputMode="numeric" className="input py-1.5" value={item.cantidad} onChange={e => updateItem(idx, 'cantidad', toInteger(e.target.value, 0))} />
                             </div>
                             <div>
                               <label className="label text-xs">Precio unit. (c/IVA)</label>
-                              <input type="number" min="0" step="1" className="input py-1.5" value={item.precio_unitario} onChange={e => updateItem(idx, 'precio_unitario', parseFloat(e.target.value) || 0)} />
+                              <input type="number" min="0" step="1" inputMode="numeric" className="input py-1.5" value={item.precio_unitario} onChange={e => updateItem(idx, 'precio_unitario', toInteger(e.target.value, 0))} />
                             </div>
                             <div>
                               <label className="label text-xs">IVA %</label>
-                              <select className="input py-1.5" value={item.tasa_iva} onChange={e => updateItem(idx, 'tasa_iva', parseFloat(e.target.value))}>  
+                              <select className="input py-1.5" value={item.tasa_iva} onChange={e => updateItem(idx, 'tasa_iva', toInteger(e.target.value, 0))}>  
                                 <option value={10}>10%</option>
                                 <option value={5}>5%</option>
                                 <option value={0}>Exento</option>

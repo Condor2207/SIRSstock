@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
+import { formatCurrency, getErrorMessage, isSchemaCacheMissing, toInteger, toIntegerInput } from '@/lib/utils';
 import { Plus, Search, Edit2, Trash2, X, Loader2, Package, ToggleLeft, ToggleRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -83,17 +83,17 @@ export default function ProductosPage() {
     setForm({
       sku: p.sku, nombre: p.nombre, descripcion: p.descripcion || '',
       categoria_id: p.categoria_id || '', unidad_medida: p.unidad_medida,
-      precio_venta: String(p.precio_venta), precio_compra: String(p.precio_compra || 0),
-      stock_minimo: String(p.stock_minimo || 0), control_lote: p.control_lote,
+      precio_venta: String(toInteger(p.precio_venta, 0)), precio_compra: String(toInteger(p.precio_compra || 0, 0)),
+      stock_minimo: String(toInteger(p.stock_minimo || 0, 0)), control_lote: p.control_lote,
       clasificacion_id: (p as any).clasificacion_id || '', codigo_barras: (p as any).codigo_barras || '',
       marca_id: (p as any).marca_id || '', linea_id: (p as any).linea_id || '', grupo_id: (p as any).grupo_id || '',
       tasa_iva_id: (p as any).tasa_iva_id || '', es_exportacion: (p as any).es_exportacion || false,
-      plazo_vencimiento_meses: String((p as any).plazo_vencimiento_meses ?? 36),
-      porcentaje_comision: String((p as any).porcentaje_comision ?? 0),
+      plazo_vencimiento_meses: String(toInteger((p as any).plazo_vencimiento_meses ?? 36, 36)),
+      porcentaje_comision: String(toInteger((p as any).porcentaje_comision ?? 0, 0)),
     });
     const { data: precios } = await supabase.from('producto_precios').select('lista_precios_id, precio').eq('producto_id', p.id);
     const map: Record<string, string> = {};
-    (precios || []).forEach((pp: any) => { map[pp.lista_precios_id] = String(pp.precio); });
+    (precios || []).forEach((pp: any) => { map[pp.lista_precios_id] = String(toInteger(pp.precio, 0)); });
     setPreciosPorLista(map);
     // Cargar datos de exportación si existen
     const { data: expData } = await supabase.from('producto_exportacion').select('*').eq('producto_id', p.id).maybeSingle();
@@ -101,7 +101,7 @@ export default function ProductosPage() {
       nombre_en: expData?.nombre_en || '',
       descripcion_en: expData?.descripcion_en || '',
       unidad_medida_en: expData?.unidad_medida_en || '',
-      precio_usd: expData?.precio_usd ? String(expData.precio_usd) : '',
+      precio_usd: expData?.precio_usd ? String(toInteger(expData.precio_usd, 0)) : '',
       codigo_barras_en: expData?.codigo_barras_en || '',
       notas_en: expData?.notas_en || '',
     });
@@ -149,9 +149,9 @@ export default function ProductosPage() {
       descripcion: form.descripcion || null,
       categoria_id: form.categoria_id || null,
       unidad_medida: form.unidad_medida || 'Unidad',
-      precio_venta: parseFloat(form.precio_venta) || 0,
-      precio_compra: parseFloat(form.precio_compra) || 0,
-      stock_minimo: parseFloat(form.stock_minimo) || 0,
+      precio_venta: toInteger(form.precio_venta, 0),
+      precio_compra: toInteger(form.precio_compra, 0),
+      stock_minimo: toInteger(form.stock_minimo, 0),
       control_lote: form.control_lote,
     };
     const payloadExtra: any = {
@@ -162,8 +162,8 @@ export default function ProductosPage() {
       grupo_id: form.grupo_id || null,
       tasa_iva_id: form.tasa_iva_id || null,
       es_exportacion: form.es_exportacion,
-      plazo_vencimiento_meses: parseInt(form.plazo_vencimiento_meses) || 36,
-      porcentaje_comision: parseFloat(form.porcentaje_comision) || 0,
+      plazo_vencimiento_meses: toInteger(form.plazo_vencimiento_meses, 36) || 36,
+      porcentaje_comision: toInteger(form.porcentaje_comision, 0),
     };
     try {
       const payload = { ...payloadBase, ...payloadExtra };
@@ -191,7 +191,7 @@ export default function ProductosPage() {
         toast.success('Producto creado');
       }
       for (const [lista_precios_id, precioStr] of Object.entries(preciosPorLista)) {
-        const precio = parseFloat(precioStr) || 0;
+        const precio = toInteger(precioStr, 0);
         await supabase.from('producto_precios').upsert({ producto_id: productoId, lista_precios_id, precio }, { onConflict: 'producto_id,lista_precios_id' });
       }
       // Guardar datos de exportación si aplica
@@ -201,7 +201,7 @@ export default function ProductosPage() {
           nombre_en: formExport.nombre_en || null,
           descripcion_en: formExport.descripcion_en || null,
           unidad_medida_en: formExport.unidad_medida_en || null,
-          precio_usd: parseFloat(formExport.precio_usd) || null,
+          precio_usd: formExport.precio_usd ? toInteger(formExport.precio_usd, 0) : null,
           codigo_barras_en: formExport.codigo_barras_en || null,
           notas_en: formExport.notas_en || null,
         };
@@ -458,26 +458,26 @@ export default function ProductosPage() {
                   <div className="grid grid-cols-3 gap-3">
                     <div>
                       <label className="label">Precio Venta (Gs.)</label>
-                      <input type="number" min="0" className="input" value={form.precio_venta} onChange={e => setForm(f => ({ ...f, precio_venta: e.target.value }))} />
+                      <input type="number" min="0" step="1" inputMode="numeric" className="input" value={form.precio_venta} onChange={e => setForm(f => ({ ...f, precio_venta: toIntegerInput(e.target.value) }))} />
                     </div>
                     <div>
                       <label className="label">Precio Compra (Gs.)</label>
-                      <input type="number" min="0" className="input" value={form.precio_compra} onChange={e => setForm(f => ({ ...f, precio_compra: e.target.value }))} />
+                      <input type="number" min="0" step="1" inputMode="numeric" className="input" value={form.precio_compra} onChange={e => setForm(f => ({ ...f, precio_compra: toIntegerInput(e.target.value) }))} />
                     </div>
                     <div>
                       <label className="label">Stock mínimo</label>
-                      <input type="number" min="0" className="input" value={form.stock_minimo} onChange={e => setForm(f => ({ ...f, stock_minimo: e.target.value }))} />
+                      <input type="number" min="0" step="1" inputMode="numeric" className="input" value={form.stock_minimo} onChange={e => setForm(f => ({ ...f, stock_minimo: toIntegerInput(e.target.value) }))} />
                     </div>
                     <div>
                       <label className="label">Plazo venc. (meses)</label>
-                      <input type="number" min="0" className="input" value={form.plazo_vencimiento_meses} onChange={e => setForm(f => ({ ...f, plazo_vencimiento_meses: e.target.value }))} />
+                      <input type="number" min="0" step="1" inputMode="numeric" className="input" value={form.plazo_vencimiento_meses} onChange={e => setForm(f => ({ ...f, plazo_vencimiento_meses: toIntegerInput(e.target.value) }))} />
                       {calcFechaVencimiento() && (
                         <p className="text-xs text-gray-400 mt-1">Vence aprox.: <span className="text-orange-500 font-medium">{calcFechaVencimiento()}</span></p>
                       )}
                     </div>
                     <div>
                       <label className="label">% Comisión</label>
-                      <input type="number" min="0" max="100" step="0.01" className="input" value={form.porcentaje_comision} onChange={e => setForm(f => ({ ...f, porcentaje_comision: e.target.value }))} />
+                      <input type="number" min="0" max="100" step="1" inputMode="numeric" className="input" value={form.porcentaje_comision} onChange={e => setForm(f => ({ ...f, porcentaje_comision: toIntegerInput(e.target.value) }))} />
                     </div>
                   </div>
 
@@ -514,7 +514,7 @@ export default function ProductosPage() {
                     </div>
                     <div>
                       <label className="label">Export Price (USD)</label>
-                      <input type="number" min="0" step="0.01" className="input" placeholder="0.00" value={formExport.precio_usd} onChange={e => setFormExport(f => ({ ...f, precio_usd: e.target.value }))} />
+                      <input type="number" min="0" step="1" inputMode="numeric" className="input" placeholder="0" value={formExport.precio_usd} onChange={e => setFormExport(f => ({ ...f, precio_usd: toIntegerInput(e.target.value) }))} />
                     </div>
                   </div>
                   <div>
@@ -536,10 +536,10 @@ export default function ProductosPage() {
                       <div key={lista.id} className="flex items-center gap-3">
                         <span className="text-sm font-medium text-gray-700 dark:text-gray-300 w-52 shrink-0">{lista.nombre}</span>
                         <input
-                          type="number" min="0" placeholder={form.precio_venta || '0'}
+                          type="number" min="0" step="1" inputMode="numeric" placeholder={form.precio_venta || '0'}
                           className="input max-w-[180px]"
                           value={preciosPorLista[lista.id] || ''}
-                          onChange={e => setPreciosPorLista(prev => ({ ...prev, [lista.id]: e.target.value }))}
+                          onChange={e => setPreciosPorLista(prev => ({ ...prev, [lista.id]: toIntegerInput(e.target.value) }))}
                         />
                         <span className="text-xs text-gray-400">Gs.</span>
                       </div>

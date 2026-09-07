@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatDate, estadoVencimiento, formatNumber } from '@/lib/utils';
+import { formatDate, estadoVencimiento, formatNumber, toInteger, toIntegerInput } from '@/lib/utils';
 import { Search, Plus, Boxes, AlertTriangle, X, Loader2, Filter } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -89,7 +89,7 @@ export default function StockPage() {
 
   async function handleAjuste() {
     if (!ajusteForm.producto_id || !ajusteForm.cantidad) { toast.error('Completá los campos requeridos'); return; }
-    const cant = Number(ajusteForm.cantidad);
+    const cant = toInteger(ajusteForm.cantidad, 0);
     if (!Number.isInteger(cant) || cant <= 0) { toast.error('La cantidad debe ser un número entero mayor a 0'); return; }
     setSaving(true);
     try {
@@ -287,7 +287,7 @@ export default function StockPage() {
               )}
               <div>
                 <label className="label">Cantidad *</label>
-                <input type="number" min="1" step="1" inputMode="numeric" className="input" value={ajusteForm.cantidad} onChange={e => setAjusteForm(f => ({ ...f, cantidad: e.target.value }))} />
+                <input type="number" min="1" step="1" inputMode="numeric" className="input" value={ajusteForm.cantidad} onChange={e => setAjusteForm(f => ({ ...f, cantidad: toIntegerInput(e.target.value) }))} />
               </div>
               <div>
                 <label className="label">Observaciones</label>

@@ -345,8 +345,8 @@ export default function ReportesPage() {
                         <tr key={i} className={p.stock_actual <= p.stock_minimo ? 'bg-red-50/50 dark:bg-red-900/10' : ''}>
                           <td className="table-cell font-mono text-xs font-bold">{p.sku}</td>
                           <td className="table-cell font-medium">{p.nombre}</td>
-                          <td className="table-cell font-bold text-lg">{formatNumber(p.stock_actual, 1)}</td>
-                          <td className="table-cell text-gray-500">{formatNumber(p.stock_minimo, 1)}</td>
+                          <td className="table-cell font-bold text-lg">{formatNumber(p.stock_actual, 0)}</td>
+                          <td className="table-cell text-gray-500">{formatNumber(p.stock_minimo, 0)}</td>
                           <td className="table-cell text-xs text-gray-500">{p.unidad}</td>
                           <td className="table-cell">
                             {p.stock_actual <= 0
@@ -579,7 +579,7 @@ export default function ReportesPage() {
                               <td className="table-cell font-mono text-xs">{(l as any).productos?.sku}</td>
                               <td className="table-cell font-mono text-xs font-bold">{l.numero_lote}</td>
                               <td className="table-cell">{formatDate(l.fecha_vencimiento)}</td>
-                              <td className="table-cell font-semibold">{formatNumber(l.stock_actual, 1)}</td>
+                              <td className="table-cell font-semibold">{formatNumber(l.stock_actual, 0)}</td>
                               <td className="table-cell">
                                 <span className={`badge ${info.color.replace('text-', 'text-').replace('bg-', 'bg-')}`}>{info.label}</span>
                               </td>

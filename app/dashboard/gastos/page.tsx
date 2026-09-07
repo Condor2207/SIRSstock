@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, formatDate, estadoBadgeClass, getErrorMessage, isSchemaCacheMissing, toDigitsOnly } from '@/lib/utils';
+import { formatCurrency, formatDate, estadoBadgeClass, getErrorMessage, isSchemaCacheMissing, toDigitsOnly, toInteger, toIntegerInput } from '@/lib/utils';
 import { Plus, Search, Receipt, X, Loader2, Edit2, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Gasto, Proveedor, TasaIva } from '@/lib/types';
@@ -112,7 +112,7 @@ export default function GastosPage() {
     setForm({
       descripcion: g.descripcion || '',
       proveedor_id: g.proveedor_id || '',
-      monto: String(g.monto || ''),
+      monto: g.monto ? String(toInteger(g.monto, 0)) : '',
       fecha: g.fecha || new Date().toISOString().split('T')[0],
       medio_pago: g.medio_pago || 'efectivo',
       categoria,
@@ -145,7 +145,7 @@ export default function GastosPage() {
     if (!form.categoria || !form.monto) { toast.error('Categoría y monto son obligatorios'); return; }
     const proveedorId = form.proveedor_id.trim();
     if (!proveedorId) { toast.error('Por favor seleccione un proveedor'); return; }
-    const monto = parseFloat(form.monto);
+    const monto = toInteger(form.monto, 0);
     if (isNaN(monto) || monto <= 0) { toast.error('El monto debe ser mayor a 0'); return; }
     if (schemaCompatMode && form.condicion === 'credito') {
       toast.error('No se pueden registrar gastos a crédito porque faltan columnas en la base de datos. Por favor ejecute las migraciones 009, 010 y 011.');
@@ -364,7 +364,7 @@ export default function GastosPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">Monto ($) *</label>
-                  <input type="number" min="0.01" step="0.01" className="input" value={form.monto} onChange={e => setForm(f => ({ ...f, monto: e.target.value }))} />
+                  <input type="number" min="1" step="1" inputMode="numeric" className="input" value={form.monto} onChange={e => setForm(f => ({ ...f, monto: toIntegerInput(e.target.value) }))} />
                 </div>
                 <div>
                   <label className="label">Fecha</label>
