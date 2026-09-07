@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, calcularCuotas, formatDate } from '@/lib/utils';
+import { formatCurrency, calcularCuotas, formatDate, toDigitsOnly } from '@/lib/utils';
 import { Plus, Trash2, ShoppingCart, Loader2, ArrowLeft, Search, Printer, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
@@ -169,6 +169,10 @@ export default function NuevaVentaPage() {
     : 0;
 
   async function confirmarVenta() {
+    const numeroFacturaDigits = toDigitsOnly(numeroFactura);
+    const puntoVentaDigits = toDigitsOnly(puntoVenta);
+    const timbradoDigits = toDigitsOnly(timbrado);
+    const notaRemisionDigits = toDigitsOnly(notaRemision);
     if (!clienteId) { toast.error('Seleccioná un cliente'); return; }
     if (items.length === 0) { toast.error('Agregá al menos un producto'); return; }
     if (condicionPago === 'credito' && total > creditoDisponible && creditoDisponible > 0) {
@@ -210,10 +214,10 @@ export default function NuevaVentaPage() {
         total,
         saldo_pendiente: condicionPago === 'credito' ? total : 0,
         estado: condicionPago === 'contado' ? 'pagado' : 'pendiente',
-        numero_factura: numeroFactura || null,
-        punto_venta: puntoVenta || null,
-        timbrado: timbrado || null,
-        nota_remision: notaRemision || null,
+        numero_factura: numeroFacturaDigits || null,
+        punto_venta: puntoVentaDigits || null,
+        timbrado: timbradoDigits || null,
+        nota_remision: notaRemisionDigits || null,
         notas: notas || null,
       };
       // Retry stripping optional columns absent in older schemas (003/009 not yet applied)
@@ -674,19 +678,19 @@ export default function NuevaVentaPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="label">Número de factura</label>
-                  <input className="input" placeholder="0001-00001234" value={numeroFactura} onChange={e => setNumeroFactura(e.target.value)} />
+                  <input className="input" placeholder="000100001234" value={numeroFactura} onChange={e => setNumeroFactura(toDigitsOnly(e.target.value))} />
                 </div>
                 <div>
                   <label className="label">Punto de venta</label>
-                  <input className="input" placeholder="0001" value={puntoVenta} onChange={e => setPuntoVenta(e.target.value)} />
+                  <input className="input" placeholder="0001" value={puntoVenta} onChange={e => setPuntoVenta(toDigitsOnly(e.target.value))} />
                 </div>
                 <div>
                   <label className="label">N° de timbrado</label>
-                  <input className="input" placeholder="12345678" value={timbrado} onChange={e => setTimbrado(e.target.value)} />
+                  <input className="input" placeholder="12345678" value={timbrado} onChange={e => setTimbrado(toDigitsOnly(e.target.value))} />
                 </div>
                 <div>
                   <label className="label">Nota de remisión</label>
-                  <input className="input" placeholder="NR-0001-00000001" value={notaRemision} onChange={e => setNotaRemision(e.target.value)} />
+                  <input className="input" placeholder="000100000001" value={notaRemision} onChange={e => setNotaRemision(toDigitsOnly(e.target.value))} />
                 </div>
               </div>
               <div className="mt-3">

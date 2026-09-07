@@ -25,6 +25,11 @@ export function formatNumber(num: number, decimals = 2): string {
   }).format(num);
 }
 
+// Mantener solo dígitos para campos de identificación numérica
+export function toDigitsOnly(value: string): string {
+  return (value || '').replace(/\D+/g, '');
+}
+
 // Formatear fecha
 export function formatDate(date: string | Date, fmt = 'dd/MM/yyyy'): string {
   if (!date) return '-';

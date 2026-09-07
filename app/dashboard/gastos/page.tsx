@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, formatDate, estadoBadgeClass, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
+import { formatCurrency, formatDate, estadoBadgeClass, getErrorMessage, isSchemaCacheMissing, toDigitsOnly } from '@/lib/utils';
 import { Plus, Search, Receipt, X, Loader2, Edit2, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Gasto, Proveedor, TasaIva } from '@/lib/types';
@@ -182,9 +182,9 @@ export default function GastosPage() {
         Object.assign(payload, {
           condicion: form.condicion,
           fecha_vencimiento: form.condicion === 'credito' ? (form.fecha_vencimiento || null) : null,
-          numero_transaccion: form.medio_pago === 'transferencia' ? (form.numero_transaccion || null) : null,
+          numero_transaccion: form.medio_pago === 'transferencia' ? (toDigitsOnly(form.numero_transaccion) || null) : null,
           banco_id: form.medio_pago === 'cheque' ? (form.banco_id || null) : null,
-          numero_cheque: form.medio_pago === 'cheque' ? (form.numero_cheque || null) : null,
+          numero_cheque: form.medio_pago === 'cheque' ? (toDigitsOnly(form.numero_cheque) || null) : null,
           fecha_cheque: form.medio_pago === 'cheque' ? (form.fecha_cheque || null) : null,
           tasa_iva_id: form.tasa_iva_id || null,
           saldo_pendiente: saldoPendiente,
@@ -406,14 +406,14 @@ export default function GastosPage() {
                 {!schemaCompatMode && form.condicion !== 'credito' && form.medio_pago === 'transferencia' && (
                   <div>
                     <label className="label">N° Transacción</label>
-                    <input className="input" placeholder="TRF-00001" value={form.numero_transaccion} onChange={e => setForm(f => ({ ...f, numero_transaccion: e.target.value }))} />
+                    <input className="input" placeholder="00001" value={form.numero_transaccion} onChange={e => setForm(f => ({ ...f, numero_transaccion: toDigitsOnly(e.target.value) }))} />
                   </div>
                 )}
                 {!schemaCompatMode && form.condicion !== 'credito' && form.medio_pago === 'cheque' && (
                   <>
                     <div>
                       <label className="label">N° Cheque</label>
-                      <input className="input" placeholder="CHE-00001" value={form.numero_cheque} onChange={e => setForm(f => ({ ...f, numero_cheque: e.target.value }))} />
+                      <input className="input" placeholder="00001" value={form.numero_cheque} onChange={e => setForm(f => ({ ...f, numero_cheque: toDigitsOnly(e.target.value) }))} />
                     </div>
                     <div>
                       <label className="label">Banco</label>
