@@ -1,10 +1,10 @@
 'use client';
 
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, formatDate, estadoBadgeClass } from '@/lib/utils';
+import { formatCurrency, formatDate, estadoBadgeClass, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
 import { Plus, Search, Eye, X, Loader2, Trash2, CreditCard } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -31,6 +31,8 @@ export default function ComprasPage() {
   const [showModal, setShowModal] = useState(false);
   const [detalle, setDetalle] = useState<Compra | null>(null);
   const [saving, setSaving] = useState(false);
+  const [schemaCompatNumeroFactura, setSchemaCompatNumeroFactura] = useState(false);
+  const compatToastShown = useRef(false);
   const [proveedores, setProveedores] = useState<Proveedor[]>([]);
   const [productos, setProductos] = useState<Producto[]>([]);
   const [form, setForm] = useState({
@@ -44,8 +46,18 @@ export default function ComprasPage() {
     setLoading(true);
     const { data } = await supabase.from('compras').select('*, proveedores(nombre)').order('created_at', { ascending: false }).limit(100);
     setCompras(data as Compra[] || []);
+    const compatProbe = await supabase.from('compras').select('id, numero_factura').limit(1);
+    if (compatProbe.error && isSchemaCacheMissing(compatProbe.error, ['compras', 'numero_factura'])) {
+      setSchemaCompatNumeroFactura(true);
+      if (!compatToastShown.current) {
+        toast('La base de datos no tiene aún la columna N° Factura en compras. Se activó el modo compatible.');
+        compatToastShown.current = true;
+      }
+    } else {
+      setSchemaCompatNumeroFactura(false);
+    }
     setLoading(false);
-  }, []);
+  }, [supabase]);
 
   useEffect(() => {
     load();
@@ -110,7 +122,7 @@ export default function ComprasPage() {
     if (items.some(i => !i.producto_id)) { toast.error('Todos los líneas deben tener un producto seleccionado'); return; }
     if (items.some(i => i.cantidad <= 0)) { toast.error('La cantidad debe ser mayor a 0 en todos los productos'); return; }
     if (items.some(i => i.precio_unitario <= 0)) { toast.error('El precio unitario debe ser mayor a 0'); return; }
-    if (!form.numero_factura.trim()) { toast.error('El número de factura es obligatorio'); return; }
+    if (!schemaCompatNumeroFactura && !form.numero_factura.trim()) { toast.error('El número de factura es obligatorio'); return; }
     const itemsSinLote = items.filter(i => !i.numero_lote.trim());
     if (itemsSinLote.length > 0) {
       toast.error(`Debés completar número de lote: ${itemsSinLote.map(i => i.producto_nombre).join(', ')}`);
@@ -126,13 +138,12 @@ export default function ComprasPage() {
       const { count } = await supabase.from('compras').select('*', { count: 'exact', head: true });
       const numCompra = `C-${String((count || 0) + 1).padStart(5, '0')}`;
 
-      const { data: compra, error } = await supabase.from('compras').insert({
+      const compraPayloadBase = {
         numero: numCompra,
         fecha: new Date().toISOString().split('T')[0],
         proveedor_id: form.proveedor_id || null,
         condicion_pago: form.condicion_pago,
         numero_remito: form.numero_remito || null,
-        numero_factura: form.numero_factura || null,
         subtotal: subtotalItems, total,
         costo_flete: compra_servicios || 0,
         plazo_dias: parseInt(form.plazo_dias) || 0,
@@ -140,7 +151,21 @@ export default function ComprasPage() {
         saldo_pendiente: form.condicion_pago === 'credito' ? total : 0,
         estado: form.condicion_pago === 'contado' ? 'pagado' : 'pendiente',
         notas: form.notas || null,
-      }).select().single();
+      };
+      let compraRes = await supabase.from('compras').insert(
+        schemaCompatNumeroFactura
+          ? compraPayloadBase
+          : { ...compraPayloadBase, numero_factura: form.numero_factura || null }
+      ).select().single();
+      if (compraRes.error && isSchemaCacheMissing(compraRes.error, ['compras', 'numero_factura'])) {
+        setSchemaCompatNumeroFactura(true);
+        if (!compatToastShown.current) {
+          toast('La base de datos no tiene aún la columna N° Factura en compras. Se guardará sin ese dato hasta ejecutar la migración.');
+          compatToastShown.current = true;
+        }
+        compraRes = await supabase.from('compras').insert(compraPayloadBase).select().single();
+      }
+      const { data: compra, error } = compraRes;
       if (error) throw error;
 
       // Items
@@ -204,7 +229,7 @@ export default function ComprasPage() {
       setForm({ proveedor_id: '', condicion_pago: 'contado', numero_remito: '', numero_factura: '', notas: '', compra_servicios: '', plazo_dias: '', cantidad_cuotas: '1' });
       load();
     } catch (e: any) {
-      toast.error(e.message || 'Error al guardar');
+      toast.error(getErrorMessage(e) || 'Error al guardar');
     } finally {
       setSaving(false);
     }
@@ -263,6 +288,11 @@ export default function ComprasPage() {
     <>
       <Header title="Compras" subtitle="Registro de compras a proveedores" />
       <div className="p-4 md:p-6 space-y-4">
+        {schemaCompatNumeroFactura && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+            Modo compatible activo: esta base todavía no tiene la columna N° Factura en compras. El módulo seguirá funcionando, pero ese dato no se guardará hasta ejecutar la migración pendiente.
+          </div>
+        )}
         <div className="flex flex-col sm:flex-row gap-3 justify-between">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -354,10 +384,16 @@ export default function ComprasPage() {
                   <label className="label">N° Remito</label>
                   <input className="input" value={form.numero_remito} onChange={e => setForm(f => ({ ...f, numero_remito: e.target.value }))} placeholder="R-0001-00000123" />
                 </div>
-                <div>
-                  <label className="label">N° Factura <span className="text-red-500">*</span></label>
-                  <input className="input" value={form.numero_factura} onChange={e => setForm(f => ({ ...f, numero_factura: e.target.value }))} placeholder="F-001-0000001" />
-                </div>
+                {schemaCompatNumeroFactura ? (
+                  <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+                    N° Factura no disponible en esta base por ahora. Ejecutá la migración correspondiente para habilitarlo.
+                  </div>
+                ) : (
+                  <div>
+                    <label className="label">N° Factura <span className="text-red-500">*</span></label>
+                    <input className="input" value={form.numero_factura} onChange={e => setForm(f => ({ ...f, numero_factura: e.target.value }))} placeholder="F-001-0000001" />
+                  </div>
+                )}
                 <div>
                   <label className="label">Compra de servicios (Gs.)</label>
                   <input type="number" min="0" step="1" className="input" value={form.compra_servicios} onChange={e => setForm(f => ({ ...f, compra_servicios: e.target.value }))} placeholder="0" />

@@ -62,7 +62,7 @@ export default function GastosPage() {
       data = baseRes.data;
       error = baseRes.error;
       if (!compatToastShown.current) {
-        toast.error('La base de datos no tiene aún todas las columnas de gastos. Se ha activado un modo compatible.');
+        toast('La base de datos no tiene aún todas las columnas de gastos. Se activó el modo compatible.');
         compatToastShown.current = true;
       }
     } else {
@@ -234,6 +234,11 @@ export default function GastosPage() {
     <>
       <Header title="Gastos" subtitle="Registro de gastos y egresos operativos" />
       <div className="p-4 md:p-6 space-y-4">
+        {schemaCompatMode && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+            Modo compatible activo: faltan columnas avanzadas de gastos en la base de datos. Podés seguir usando el módulo con funciones reducidas hasta ejecutar las migraciones pendientes.
+          </div>
+        )}
         <div className="flex flex-col sm:flex-row gap-3 justify-between items-start">
           <div className="flex gap-2 flex-1">
             <div className="relative flex-1 max-w-sm">

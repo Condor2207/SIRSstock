@@ -89,8 +89,8 @@ export default function StockPage() {
 
   async function handleAjuste() {
     if (!ajusteForm.producto_id || !ajusteForm.cantidad) { toast.error('Completá los campos requeridos'); return; }
-    const cant = parseFloat(ajusteForm.cantidad);
-    if (isNaN(cant) || cant <= 0) { toast.error('La cantidad debe ser mayor a 0'); return; }
+    const cant = Number(ajusteForm.cantidad);
+    if (!Number.isInteger(cant) || cant <= 0) { toast.error('La cantidad debe ser un número entero mayor a 0'); return; }
     setSaving(true);
     try {
       // Registrar movimiento
@@ -202,11 +202,11 @@ export default function StockPage() {
                           <td className="table-cell text-gray-500 text-xs">{r.categoria}</td>
                           <td className="table-cell">
                             <div className="flex items-center gap-2">
-                              <span className={`font-bold text-base ${stockBajo ? 'text-red-500' : 'text-emerald-600'}`}>{formatNumber(r.stockTotal, 1)}</span>
+                              <span className={`font-bold text-base ${stockBajo ? 'text-red-500' : 'text-emerald-600'}`}>{formatNumber(r.stockTotal, 0)}</span>
                               <span className="text-xs text-gray-400">{r.unidad}</span>
                               {stockBajo && <span title="Stock bajo mínimo"><AlertTriangle className="w-4 h-4 text-yellow-500" /></span>}
                             </div>
-                            <div className="text-xs text-gray-400">mín: {r.stockMinimo}</div>
+                            <div className="text-xs text-gray-400">mín: {formatNumber(r.stockMinimo, 0)}</div>
                           </td>
                           <td className="table-cell">
                             {r.controlLote ? (
@@ -219,7 +219,7 @@ export default function StockPage() {
                                     return (
                                       <div key={l.id} className="flex items-center gap-2 text-xs">
                                         <span className="font-mono bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">{l.numero_lote}</span>
-                                        <span className="text-gray-500">{formatNumber(l.stock_actual, 1)}</span>
+                                        <span className="text-gray-500">{formatNumber(l.stock_actual, 0)}</span>
                                         <span className={ev.color + ' font-medium'}>{ev.label}</span>
                                       </div>
                                     );
@@ -287,7 +287,7 @@ export default function StockPage() {
               )}
               <div>
                 <label className="label">Cantidad *</label>
-                <input type="number" min="0.001" step="0.001" className="input" value={ajusteForm.cantidad} onChange={e => setAjusteForm(f => ({ ...f, cantidad: e.target.value }))} />
+                <input type="number" min="1" step="1" inputMode="numeric" className="input" value={ajusteForm.cantidad} onChange={e => setAjusteForm(f => ({ ...f, cantidad: e.target.value }))} />
               </div>
               <div>
                 <label className="label">Observaciones</label>
