@@ -83,6 +83,9 @@ export default function ProduccionPage() {
     setItems(prev => {
       const updated = [...prev];
       const item = { ...updated[idx], [campo]: valor };
+      if (campo === 'cantidad') {
+        item.cantidad = Math.max(1, Math.round(Number(valor) || 1));
+      }
       if (campo === 'producto_id') {
         const prod = productos.find(p => p.id === valor);
         item.producto_nombre = prod ? `${prod.sku} - ${prod.nombre}` : '';
@@ -110,6 +113,9 @@ export default function ProduccionPage() {
     setInsumos(prev => {
       const updated = [...prev];
       const ins = { ...updated[idx], [campo]: valor };
+      if (campo === 'cantidad') {
+        ins.cantidad = Math.max(1, Math.round(Number(valor) || 1));
+      }
       if (campo === 'producto_id') {
         const prod = productos.find(p => p.id === valor);
         ins.producto_nombre = prod ? `${prod.sku} - ${prod.nombre}` : '';
@@ -329,7 +335,7 @@ export default function ProduccionPage() {
                         <div className="space-y-0.5">
                           {p.produccion_items?.slice(0, 3).map(i => (
                             <div key={i.id} className="text-xs text-gray-600 dark:text-gray-400">
-                              {(i as any).productos?.sku} — {formatNumber(i.cantidad, 1)} uds. · Lote: {i.numero_lote}
+                              {(i as any).productos?.sku} — {formatNumber(i.cantidad, 0)} uds. · Lote: {i.numero_lote}
                             </div>
                           ))}
                           {(p.produccion_items?.length || 0) > 3 && (
@@ -429,7 +435,7 @@ export default function ProduccionPage() {
                           </div>
                           <div>
                             <label className="label text-xs">Cantidad</label>
-                            <input type="number" min="0.001" step="0.001" className="input py-1.5" value={item.cantidad} onChange={e => updateItem(idx, 'cantidad', parseFloat(e.target.value) || 0)} />
+                            <input type="number" min="1" step="1" inputMode="numeric" className="input py-1.5" value={item.cantidad} onChange={e => updateItem(idx, 'cantidad', parseInt(e.target.value, 10) || 0)} />
                           </div>
                           {!form.usar_lote_comun && (
                             <>
@@ -483,7 +489,7 @@ export default function ProduccionPage() {
                         <div className="flex gap-1 items-end">
                           <div className="flex-1">
                             <label className="label text-xs">Cantidad</label>
-                            <input type="number" min="0.001" step="0.001" className="input py-1.5" value={ins.cantidad} onChange={e => updateInsumo(idx, 'cantidad', parseFloat(e.target.value) || 0)} />
+                            <input type="number" min="1" step="1" inputMode="numeric" className="input py-1.5" value={ins.cantidad} onChange={e => updateInsumo(idx, 'cantidad', parseInt(e.target.value, 10) || 0)} />
                           </div>
                           <button onClick={() => setInsumos(prev => prev.filter((_, i) => i !== idx))} className="p-1.5 text-red-400 mb-0.5"><Trash2 className="w-4 h-4" /></button>
                         </div>
@@ -544,7 +550,7 @@ export default function ProduccionPage() {
                         <td className="table-cell">{(i as any).productos?.nombre}</td>
                         <td className="table-cell font-mono text-xs">{i.numero_lote}</td>
                         <td className="table-cell text-xs">{i.fecha_vencimiento ? formatDate(i.fecha_vencimiento) : '-'}</td>
-                        <td className="table-cell font-semibold">{formatNumber(i.cantidad, 1)}</td>
+                        <td className="table-cell font-semibold">{formatNumber(i.cantidad, 0)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -564,7 +570,7 @@ export default function ProduccionPage() {
                       {(detalle as any).produccion_insumos?.map((i: any) => (
                         <tr key={i.id}>
                           <td className="table-cell">{i.productos?.nombre}</td>
-                          <td className="table-cell font-semibold">{formatNumber(i.cantidad, 3)}</td>
+                          <td className="table-cell font-semibold">{formatNumber(i.cantidad, 0)}</td>
                         </tr>
                       ))}
                     </tbody>
