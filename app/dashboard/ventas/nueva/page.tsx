@@ -5,7 +5,7 @@ import { useRouter } from 'next/navigation';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, calcularCuotas, formatDate, toDigitsOnly } from '@/lib/utils';
+import { formatCurrency, calcularCuotas, formatDate, toDigitsOnly, toInteger } from '@/lib/utils';
 import { Plus, Trash2, ShoppingCart, Loader2, ArrowLeft, Search, Printer, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
@@ -116,8 +116,8 @@ export default function NuevaVentaPage() {
     const precioLista = listaId
       ? (producto as any).producto_precios?.find((pp: any) => pp.lista_precios_id === listaId)?.precio
       : null;
-    const precioBase = precioLista ?? producto.precio_venta;
-    const taxaPct = (producto as any).tasa_iva_ref?.porcentaje ?? 10;
+    const precioBase = toInteger(precioLista ?? producto.precio_venta, 0);
+    const taxaPct = toInteger((producto as any).tasa_iva_ref?.porcentaje ?? 10, 10);
     const nuevo: NuevaVentaItem = {
       producto_id: producto.id,
       producto_nombre: `${producto.sku} - ${producto.nombre}`,
@@ -146,8 +146,9 @@ export default function NuevaVentaPage() {
         item.fecha_vencimiento = lote?.fecha_vencimiento;
       }
       if (campo === 'cantidad') {
-        item.cantidad = Math.max(1, Math.round(parseFloat(String(item.cantidad)) || 1));
-        item.subtotal = item.cantidad * (parseFloat(String(item.precio_unitario)) || 0);
+        item.cantidad = Math.max(1, toInteger(item.cantidad, 1));
+        item.precio_unitario = toInteger(item.precio_unitario, 0);
+        item.subtotal = item.cantidad * item.precio_unitario;
       }
       updated[idx] = item;
       return updated;
@@ -730,11 +731,11 @@ export default function NuevaVentaPage() {
                 <div className="space-y-3 mb-4 p-3 bg-purple-50 dark:bg-purple-900/10 rounded-lg">
                   <div>
                     <label className="label text-xs">Plazo (días)</label>
-                    <input type="number" min="1" className="input py-1.5" value={plazoDias} onChange={e => setPlazoDias(parseInt(e.target.value) || 30)} />
+                    <input type="number" min="1" step="1" inputMode="numeric" className="input py-1.5" value={plazoDias} onChange={e => setPlazoDias(parseInt(e.target.value) || 30)} />
                   </div>
                   <div>
                     <label className="label text-xs">Cantidad de cuotas</label>
-                    <input type="number" min="1" max="36" className="input py-1.5" value={cantidadCuotas} onChange={e => setCantidadCuotas(parseInt(e.target.value) || 1)} />
+                    <input type="number" min="1" max="36" step="1" inputMode="numeric" className="input py-1.5" value={cantidadCuotas} onChange={e => setCantidadCuotas(parseInt(e.target.value) || 1)} />
                   </div>
                   {cuotasPreview.length > 0 && (
                     <div className="text-xs space-y-1">

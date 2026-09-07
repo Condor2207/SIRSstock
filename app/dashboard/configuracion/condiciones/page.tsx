@@ -92,8 +92,8 @@ export default function CondicionesPage() {
             </div>
             <div className="space-y-4">
               <div><label className="label">Nombre *</label><input className="input" value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))} placeholder="30 días" /></div>
-              <div><label className="label">Plazo en días (0 = contado)</label><input className="input" type="number" min="0" value={form.plazo_dias} onChange={e => setForm(p => ({ ...p, plazo_dias: parseInt(e.target.value) || 0 }))} /></div>
-              <div><label className="label">Cantidad de cuotas</label><input className="input" type="number" min="1" value={form.cantidad_cuotas} onChange={e => setForm(p => ({ ...p, cantidad_cuotas: parseInt(e.target.value) || 1 }))} /></div>
+              <div><label className="label">Plazo en días (0 = contado)</label><input className="input" type="number" min="0" step="1" inputMode="numeric" value={form.plazo_dias} onChange={e => setForm(p => ({ ...p, plazo_dias: parseInt(e.target.value) || 0 }))} /></div>
+              <div><label className="label">Cantidad de cuotas</label><input className="input" type="number" min="1" step="1" inputMode="numeric" value={form.cantidad_cuotas} onChange={e => setForm(p => ({ ...p, cantidad_cuotas: parseInt(e.target.value) || 1 }))} /></div>
             </div>
             <div className="flex gap-3 mt-6">
               <button className="btn-secondary flex-1" onClick={() => setShowModal(false)}>Cancelar</button>

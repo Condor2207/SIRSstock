@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
+import { getErrorMessage, isSchemaCacheMissing, toInteger, toIntegerInput } from '@/lib/utils';
 import { Plus, Edit2, Trash2, X, Loader2, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Vendedor } from '@/lib/types';
@@ -28,7 +28,7 @@ export default function VendedoresPage() {
   useEffect(() => { load(); }, [load]);
 
   function openNew() { setEditando(null); setForm({ nombre: '', telefono: '', email: '', porcentaje_venta: '0' }); setShowModal(true); }
-  function openEdit(v: Vendedor) { setEditando(v); setForm({ nombre: v.nombre, telefono: v.telefono || '', email: v.email || '', porcentaje_venta: String(v.porcentaje_venta ?? 0) }); setShowModal(true); }
+  function openEdit(v: Vendedor) { setEditando(v); setForm({ nombre: v.nombre, telefono: v.telefono || '', email: v.email || '', porcentaje_venta: String(toInteger(v.porcentaje_venta ?? 0, 0)) }); setShowModal(true); }
 
   async function handleSave() {
     const nombre = form.nombre.trim();
@@ -39,7 +39,7 @@ export default function VendedoresPage() {
     if (!telefono && !email) { toast.error('Debés cargar teléfono o email'); return; }
 
     setSaving(true);
-    const porcentaje_venta = Math.min(100, Math.max(0, parseFloat(form.porcentaje_venta) || 0));
+    const porcentaje_venta = Math.min(100, Math.max(0, toInteger(form.porcentaje_venta, 0)));
     const payload = {
       nombre,
       telefono: telefono || null,
@@ -123,7 +123,7 @@ export default function VendedoresPage() {
               <div><label className="label">Nombre completo *</label><input className="input" value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))} /></div>
               <div><label className="label">Teléfono * (o Email)</label><input className="input" value={form.telefono} onChange={e => setForm(p => ({ ...p, telefono: e.target.value }))} /></div>
               <div><label className="label">Email * (o Teléfono)</label><input className="input" type="email" value={form.email} onChange={e => setForm(p => ({ ...p, email: e.target.value }))} /></div>
-              <div><label className="label">Porcentaje de venta (%)</label><input className="input" type="number" min="0" max="100" step="0.01" value={form.porcentaje_venta} onChange={e => setForm(p => ({ ...p, porcentaje_venta: e.target.value }))} /></div>
+              <div><label className="label">Porcentaje de venta (%)</label><input className="input" type="number" min="0" max="100" step="1" inputMode="numeric" value={form.porcentaje_venta} onChange={e => setForm(p => ({ ...p, porcentaje_venta: toIntegerInput(e.target.value) }))} /></div>
             </div>
             <div className="flex gap-3 mt-6">
               <button className="btn-secondary flex-1" onClick={() => setShowModal(false)}>Cancelar</button>

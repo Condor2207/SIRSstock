@@ -18,11 +18,29 @@ export function formatCurrency(amount: number): string {
 }
 
 // Formatear número
-export function formatNumber(num: number, decimals = 2): string {
+export function formatNumber(num: number, decimals = 0): string {
   return new Intl.NumberFormat('es-PY', {
     minimumFractionDigits: decimals,
     maximumFractionDigits: decimals,
   }).format(num);
+}
+
+// Normalizar inputs numéricos a enteros
+export function toIntegerInput(value: string): string {
+  const normalized = String(value ?? '').trim().replace(',', '.');
+  if (!normalized) return '';
+  const numeric = Number(normalized);
+  if (Number.isFinite(numeric)) return String(Math.round(numeric));
+  return normalized.replace(/\D+/g, '');
+}
+
+// Convertir cualquier valor numérico a entero
+export function toInteger(value: string | number, fallback = 0): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? Math.round(value) : fallback;
+  const normalized = String(value ?? '').trim().replace(',', '.');
+  if (!normalized) return fallback;
+  const numeric = Number(normalized);
+  return Number.isFinite(numeric) ? Math.round(numeric) : fallback;
 }
 
 // Mantener solo dígitos para campos de identificación numérica
@@ -82,7 +100,8 @@ export function calcularCuotas(
   plazoDias: number,
   fechaInicio: Date = new Date()
 ): Array<{ numero: number; fecha_vencimiento: string; monto: number }> {
-  const montoCuota = Math.round((total / cantidadCuotas) * 100) / 100;
+  const totalEntero = Math.round(total);
+  const montoCuota = Math.round(totalEntero / cantidadCuotas);
   const cuotas = [];
   for (let i = 1; i <= cantidadCuotas; i++) {
     const fecha = new Date(fechaInicio);
@@ -90,7 +109,7 @@ export function calcularCuotas(
     cuotas.push({
       numero: i,
       fecha_vencimiento: format(fecha, 'yyyy-MM-dd'),
-      monto: i === cantidadCuotas ? total - montoCuota * (cantidadCuotas - 1) : montoCuota,
+      monto: i === cantidadCuotas ? totalEntero - montoCuota * (cantidadCuotas - 1) : montoCuota,
     });
   }
   return cuotas;

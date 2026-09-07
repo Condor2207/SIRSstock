@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
+import { toInteger, toIntegerInput } from '@/lib/utils';
 import { Plus, Edit2, Trash2, X, Loader2, Check } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { TasaIva } from '@/lib/types';
@@ -27,12 +28,12 @@ export default function TasasIvaPage() {
   useEffect(() => { load(); }, [load]);
 
   function openNew() { setEditando(null); setForm({ nombre: '', porcentaje: 10 }); setShowModal(true); }
-  function openEdit(t: TasaIva) { setEditando(t); setForm({ nombre: t.nombre, porcentaje: t.porcentaje }); setShowModal(true); }
+  function openEdit(t: TasaIva) { setEditando(t); setForm({ nombre: t.nombre, porcentaje: toInteger(t.porcentaje, 0) }); setShowModal(true); }
 
   async function handleSave() {
     if (!form.nombre) { toast.error('El nombre es obligatorio'); return; }
     setSaving(true);
-    const payload = { nombre: form.nombre.trim(), porcentaje: Number(form.porcentaje) };
+    const payload = { nombre: form.nombre.trim(), porcentaje: toInteger(form.porcentaje, 0) };
     const { data, error } = editando
       ? await supabase.from('tasas_iva').update(payload).eq('id', editando.id).select('id').single()
       : await supabase.from('tasas_iva').insert(payload).select('id').single();
@@ -97,7 +98,7 @@ export default function TasasIvaPage() {
             </div>
             <div className="space-y-4">
               <div><label className="label">Nombre *</label><input className="input" value={form.nombre} onChange={e => setForm(p => ({ ...p, nombre: e.target.value }))} placeholder="IVA 10%" /></div>
-              <div><label className="label">Porcentaje (%)</label><input className="input" type="number" min="0" max="100" step="0.01" value={form.porcentaje} onChange={e => setForm(p => ({ ...p, porcentaje: parseFloat(e.target.value) || 0 }))} /></div>
+              <div><label className="label">Porcentaje (%)</label><input className="input" type="number" min="0" max="100" step="1" inputMode="numeric" value={form.porcentaje} onChange={e => setForm(p => ({ ...p, porcentaje: toIntegerInput(e.target.value) === '' ? 0 : toInteger(e.target.value, 0) }))} /></div>
             </div>
             <div className="flex gap-3 mt-6">
               <button className="btn-secondary flex-1" onClick={() => setShowModal(false)}>Cancelar</button>
