@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, formatDate, estadoBadgeClass, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
+import { formatCurrency, formatDate, estadoBadgeClass, getErrorMessage, isSchemaCacheMissing, toDigitsOnly } from '@/lib/utils';
 import { Plus, Search, Eye, X, Loader2, Trash2, CreditCard } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -117,12 +117,14 @@ export default function ComprasPage() {
   const total = subtotalItems + compra_servicios;
 
   async function handleSave() {
+    const numeroRemito = toDigitsOnly(form.numero_remito);
+    const numeroFactura = toDigitsOnly(form.numero_factura);
     if (items.length === 0) { toast.error('Agregá al menos un producto a la compra'); return; }
     if (form.condicion_pago === 'credito' && !form.proveedor_id) { toast.error('En compras a crédito el proveedor es obligatorio'); return; }
     if (items.some(i => !i.producto_id)) { toast.error('Todos los líneas deben tener un producto seleccionado'); return; }
     if (items.some(i => i.cantidad <= 0)) { toast.error('La cantidad debe ser mayor a 0 en todos los productos'); return; }
     if (items.some(i => i.precio_unitario <= 0)) { toast.error('El precio unitario debe ser mayor a 0'); return; }
-    if (!schemaCompatNumeroFactura && !form.numero_factura.trim()) { toast.error('El número de factura es obligatorio'); return; }
+    if (!schemaCompatNumeroFactura && !numeroFactura) { toast.error('El número de factura es obligatorio'); return; }
     const itemsSinLote = items.filter(i => !i.numero_lote.trim());
     if (itemsSinLote.length > 0) {
       toast.error(`Debés completar número de lote: ${itemsSinLote.map(i => i.producto_nombre).join(', ')}`);
@@ -143,7 +145,7 @@ export default function ComprasPage() {
         fecha: new Date().toISOString().split('T')[0],
         proveedor_id: form.proveedor_id || null,
         condicion_pago: form.condicion_pago,
-        numero_remito: form.numero_remito || null,
+        numero_remito: numeroRemito || null,
         subtotal: subtotalItems, total,
         costo_flete: compra_servicios || 0,
         plazo_dias: parseInt(form.plazo_dias) || 0,
@@ -154,7 +156,7 @@ export default function ComprasPage() {
       };
       const compraPayload: Record<string, any> = schemaCompatNumeroFactura
         ? compraPayloadBase
-        : { ...compraPayloadBase, numero_factura: form.numero_factura || null };
+        : { ...compraPayloadBase, numero_factura: numeroFactura || null };
       let compraRes = await supabase.from('compras').insert(compraPayload as any).select().single();
       if (compraRes.error && isSchemaCacheMissing(compraRes.error, ['compras', 'numero_factura'])) {
         setSchemaCompatNumeroFactura(true);
@@ -381,7 +383,7 @@ export default function ComprasPage() {
                 </div>
                 <div>
                   <label className="label">N° Remito</label>
-                  <input className="input" value={form.numero_remito} onChange={e => setForm(f => ({ ...f, numero_remito: e.target.value }))} placeholder="R-0001-00000123" />
+                  <input className="input" value={form.numero_remito} onChange={e => setForm(f => ({ ...f, numero_remito: toDigitsOnly(e.target.value) }))} placeholder="000100000123" />
                 </div>
                 {schemaCompatNumeroFactura ? (
                   <div className="rounded-lg border border-dashed border-amber-300 bg-amber-50 px-3 py-2 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
@@ -390,7 +392,7 @@ export default function ComprasPage() {
                 ) : (
                   <div>
                     <label className="label">N° Factura <span className="text-red-500">*</span></label>
-                    <input className="input" value={form.numero_factura} onChange={e => setForm(f => ({ ...f, numero_factura: e.target.value }))} placeholder="F-001-0000001" />
+                    <input className="input" value={form.numero_factura} onChange={e => setForm(f => ({ ...f, numero_factura: toDigitsOnly(e.target.value) }))} placeholder="0010000001" />
                   </div>
                 )}
                 <div>

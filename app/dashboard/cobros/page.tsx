@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, formatDate, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
+import { formatCurrency, formatDate, getErrorMessage, isSchemaCacheMissing, toDigitsOnly } from '@/lib/utils';
 import { Plus, Search, Eye, X, Loader2, Handshake, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -180,12 +180,12 @@ export default function CobrosPage() {
       if (formHeader.tipo_referencia === 'gastos' && gastosSelec.length > 0) {
         await supabase.from('cobro_gastos').insert(gastosSelec.map(g => ({ cobro_id: cobro.id, gasto_id: g.gasto_id, monto_aplicado: g.monto_aplicado })));
       }
-      if (retenciones.length > 0) await supabase.from('cobro_retenciones').insert(retenciones.map(r => ({ cobro_id: cobro.id, ...r })));
+      if (retenciones.length > 0) await supabase.from('cobro_retenciones').insert(retenciones.map(r => ({ cobro_id: cobro.id, ...r, numero_retencion: toDigitsOnly(r.numero_retencion) || null })));
 
       const mediosData = medios.filter(m => m.monto > 0).map(m => ({
         cobro_id: cobro.id, tipo: m.tipo, monto: m.monto,
-        banco_id: m.banco_id || null, numero_cheque: m.numero_cheque || null,
-        fecha_cheque: m.fecha_cheque || null, numero_transaccion: m.numero_transaccion || null,
+        banco_id: m.banco_id || null, numero_cheque: toDigitsOnly(m.numero_cheque) || null,
+        fecha_cheque: m.fecha_cheque || null, numero_transaccion: toDigitsOnly(m.numero_transaccion) || null,
       }));
       if (mediosData.length > 0) await supabase.from('cobro_medios_pago').insert(mediosData);
 
@@ -500,7 +500,7 @@ export default function CobrosPage() {
                 </div>
                 {retenciones.map((r, idx) => (
                   <div key={idx} className="grid grid-cols-3 gap-2 mb-2 text-sm">
-                    <input className="input py-1.5" placeholder="N° Retención" value={r.numero_retencion} onChange={e => setRetenciones(prev => prev.map((x, i) => i === idx ? { ...x, numero_retencion: e.target.value } : x))} />
+                    <input className="input py-1.5" placeholder="N° Retención" value={r.numero_retencion} onChange={e => setRetenciones(prev => prev.map((x, i) => i === idx ? { ...x, numero_retencion: toDigitsOnly(e.target.value) } : x))} />
                     <input className="input py-1.5" placeholder="Concepto" value={r.concepto} onChange={e => setRetenciones(prev => prev.map((x, i) => i === idx ? { ...x, concepto: e.target.value } : x))} />
                     <div className="flex gap-1">
                       <input type="number" className="input py-1.5 flex-1" placeholder="Monto" value={r.monto} onChange={e => setRetenciones(prev => prev.map((x, i) => i === idx ? { ...x, monto: parseFloat(e.target.value) || 0 } : x))} />
@@ -537,7 +537,7 @@ export default function CobrosPage() {
                         <>
                           <div>
                             <label className="label text-xs">N° Cheque</label>
-                            <input className="input py-1.5" value={m.numero_cheque} onChange={e => setMedios(prev => prev.map((x, i) => i === idx ? { ...x, numero_cheque: e.target.value } : x))} />
+                            <input className="input py-1.5" value={m.numero_cheque} onChange={e => setMedios(prev => prev.map((x, i) => i === idx ? { ...x, numero_cheque: toDigitsOnly(e.target.value) } : x))} />
                           </div>
                           <div>
                             <label className="label text-xs">Banco</label>
@@ -557,7 +557,7 @@ export default function CobrosPage() {
                       {m.tipo === 'transferencia' && (
                         <div>
                           <label className="label text-xs">N° Transacción</label>
-                          <input className="input py-1.5" value={m.numero_transaccion} onChange={e => setMedios(prev => prev.map((x, i) => i === idx ? { ...x, numero_transaccion: e.target.value } : x))} />
+                          <input className="input py-1.5" value={m.numero_transaccion} onChange={e => setMedios(prev => prev.map((x, i) => i === idx ? { ...x, numero_transaccion: toDigitsOnly(e.target.value) } : x))} />
                         </div>
                       )}
                       {idx > 0 && (
