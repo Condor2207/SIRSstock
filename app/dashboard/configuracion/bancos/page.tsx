@@ -44,12 +44,13 @@ export default function BancosPage() {
     load();
   }
 
-  async function handleDelete(item: Banco) {
-    if (!window.confirm(`¿Eliminar el banco "${item.nombre}"?`)) return;
-    const { error } = await supabase.from('bancos').delete().eq('id', item.id);
+  async function handleToggleActivo(item: Banco) {
+    const nuevoEstado = !item.activo;
+    if (!window.confirm(`¿${nuevoEstado ? 'Restaurar' : 'Inactivar'} el banco "${item.nombre}"?`)) return;
+    const { error } = await supabase.from('bancos').update({ activo: nuevoEstado }).eq('id', item.id);
     if (error) { toast.error(error.message); return; }
-    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Banco', accion: 'borrar', descripcion: `Eliminó el banco ${item.nombre}`, registroId: item.id });
-    toast.success('Banco eliminado');
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Banco', accion: nuevoEstado ? 'editar' : 'borrar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} el banco ${item.nombre}`, registroId: item.id });
+    toast.success(nuevoEstado ? 'Banco restaurado' : 'Banco inactivado');
     load();
   }
 
@@ -67,11 +68,11 @@ export default function BancosPage() {
               <thead><tr><th className="table-header">Banco</th><th className="table-header text-right">Acciones</th></tr></thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {items.map(b => (
-                  <tr key={b.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                    <td className="table-cell font-medium">{b.nombre}</td>
+                  <tr key={b.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${!b.activo ? 'opacity-60' : ''}`}>
+                    <td className="table-cell font-medium">{b.nombre} {!b.activo && <span className="badge ml-2">Inactivo</span>}</td>
                     <td className="table-cell text-right">
                       <button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(b)}><Edit2 className="w-4 h-4" /></button>
-                      <button className="text-red-500 hover:text-red-700 p-1" onClick={() => handleDelete(b)}><Trash2 className="w-4 h-4" /></button>
+                      <button className={`${b.activo ? 'text-red-500 hover:text-red-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(b)} title={b.activo ? 'Inactivar banco' : 'Restaurar banco'}><Trash2 className="w-4 h-4" /></button>
                     </td>
                   </tr>
                 ))}

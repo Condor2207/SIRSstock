@@ -100,12 +100,13 @@ export default function ProveedoresPage() {
     }
   }
 
-  async function handleDelete(proveedor: Proveedor) {
-    if (!window.confirm(`¿Eliminar el proveedor "${proveedor.nombre}"?`)) return;
-    const { error } = await supabase.from('proveedores').delete().eq('id', proveedor.id);
-    if (error) { toast.error(error.message || 'Error al eliminar'); return; }
-    await logAudit(supabase, { modulo: 'Proveedores', entidad: 'Proveedor', accion: 'borrar', descripcion: `Eliminó el proveedor ${proveedor.nombre}`, registroId: proveedor.id });
-    toast.success('Proveedor eliminado');
+  async function handleToggleActivo(proveedor: Proveedor) {
+    const nuevoEstado = !proveedor.activo;
+    if (!window.confirm(`¿${nuevoEstado ? 'Restaurar' : 'Inactivar'} el proveedor "${proveedor.nombre}"?`)) return;
+    const { error } = await supabase.from('proveedores').update({ activo: nuevoEstado }).eq('id', proveedor.id);
+    if (error) { toast.error(error.message || 'Error al actualizar estado'); return; }
+    await logAudit(supabase, { modulo: 'Proveedores', entidad: 'Proveedor', accion: nuevoEstado ? 'editar' : 'borrar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} el proveedor ${proveedor.nombre}`, registroId: proveedor.id });
+    toast.success(nuevoEstado ? 'Proveedor restaurado' : 'Proveedor inactivado');
     load();
   }
 
@@ -153,8 +154,8 @@ export default function ProveedoresPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                   {filtered.map(p => (
-                    <tr key={p.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                      <td className="table-cell font-semibold">{p.nombre}</td>
+                    <tr key={p.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${!p.activo ? 'opacity-60' : ''}`}>
+                      <td className="table-cell font-semibold">{p.nombre} {!p.activo && <span className="badge ml-2">Inactivo</span>}</td>
                       <td className="table-cell text-xs">
                         {p.tipo_documento && <span className="badge bg-gray-100 text-gray-600 dark:bg-gray-700 mr-1">{p.tipo_documento}</span>}
                         {p.documento || '-'}
@@ -167,7 +168,7 @@ export default function ProveedoresPage() {
                           <button onClick={() => openEdit(p)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-blue-600">
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => handleDelete(p)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500">
+                          <button onClick={() => handleToggleActivo(p)} className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 ${p.activo ? 'text-red-500' : 'text-emerald-600'}`} title={p.activo ? 'Inactivar proveedor' : 'Restaurar proveedor'}>
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>

@@ -72,12 +72,13 @@ export default function VendedoresPage() {
     load();
   }
 
-  async function handleDelete(item: Vendedor) {
-    if (!window.confirm(`¿Eliminar el vendedor "${item.nombre}"?`)) return;
-    const { error } = await supabase.from('vendedores').delete().eq('id', item.id);
+  async function handleToggleActivo(item: Vendedor) {
+    const nuevoEstado = !item.activo;
+    if (!window.confirm(`¿${nuevoEstado ? 'Restaurar' : 'Inactivar'} el vendedor "${item.nombre}"?`)) return;
+    const { error } = await supabase.from('vendedores').update({ activo: nuevoEstado }).eq('id', item.id);
     if (error) { toast.error(error.message); return; }
-    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Vendedor', accion: 'borrar', descripcion: `Eliminó el vendedor ${item.nombre}`, registroId: item.id });
-    toast.success('Vendedor eliminado');
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Vendedor', accion: nuevoEstado ? 'editar' : 'borrar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} el vendedor ${item.nombre}`, registroId: item.id });
+    toast.success(nuevoEstado ? 'Vendedor restaurado' : 'Vendedor inactivado');
     load();
   }
 
@@ -95,14 +96,14 @@ export default function VendedoresPage() {
               <thead><tr><th className="table-header">Nombre</th><th className="table-header">Teléfono</th><th className="table-header">Email</th><th className="table-header">% Venta</th><th className="table-header text-right">Acciones</th></tr></thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {items.map(v => (
-                  <tr key={v.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                    <td className="table-cell font-medium">{v.nombre}</td>
+                  <tr key={v.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${!v.activo ? 'opacity-60' : ''}`}>
+                    <td className="table-cell font-medium">{v.nombre} {!v.activo && <span className="badge ml-2">Inactivo</span>}</td>
                     <td className="table-cell text-gray-500">{v.telefono || '—'}</td>
                     <td className="table-cell text-gray-500">{v.email || '—'}</td>
                     <td className="table-cell"><span className="font-semibold text-cyan-600">{v.porcentaje_venta ?? 0}%</span></td>
                     <td className="table-cell text-right">
                       <button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(v)}><Edit2 className="w-4 h-4" /></button>
-                      <button className="text-red-500 hover:text-red-700 p-1" onClick={() => handleDelete(v)}><Trash2 className="w-4 h-4" /></button>
+                      <button className={`${v.activo ? 'text-red-500 hover:text-red-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(v)} title={v.activo ? 'Inactivar vendedor' : 'Restaurar vendedor'}><Trash2 className="w-4 h-4" /></button>
                     </td>
                   </tr>
                 ))}

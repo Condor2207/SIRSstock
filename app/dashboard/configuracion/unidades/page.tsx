@@ -48,12 +48,13 @@ export default function UnidadesPage() {
     load();
   }
 
-  async function handleDelete(item: UnidadMedida) {
-    if (!window.confirm(`¿Eliminar la unidad "${item.nombre}"?`)) return;
-    const { error } = await supabase.from('unidades_medida').delete().eq('id', item.id);
+  async function handleToggleActivo(item: UnidadMedida) {
+    const nuevoEstado = !item.activo;
+    if (!window.confirm(`¿${nuevoEstado ? 'Restaurar' : 'Inactivar'} la unidad "${item.nombre}"?`)) return;
+    const { error } = await supabase.from('unidades_medida').update({ activo: nuevoEstado }).eq('id', item.id);
     if (error) { toast.error(error.message); return; }
-    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Unidad de medida', accion: 'borrar', descripcion: `Eliminó la unidad ${item.nombre}`, registroId: item.id });
-    toast.success('Unidad eliminada');
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Unidad de medida', accion: nuevoEstado ? 'editar' : 'borrar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} la unidad ${item.nombre}`, registroId: item.id });
+    toast.success(nuevoEstado ? 'Unidad restaurada' : 'Unidad inactivada');
     load();
   }
 
@@ -73,12 +74,12 @@ export default function UnidadesPage() {
               <thead><tr><th className="table-header">Nombre</th><th className="table-header">Abreviatura</th><th className="table-header text-right">Acciones</th></tr></thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {items.map(u => (
-                  <tr key={u.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                    <td className="table-cell font-medium">{u.nombre}</td>
+                  <tr key={u.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${!u.activo ? 'opacity-60' : ''}`}>
+                    <td className="table-cell font-medium">{u.nombre} {!u.activo && <span className="badge ml-2">Inactiva</span>}</td>
                     <td className="table-cell"><span className="badge">{u.abreviatura}</span></td>
                     <td className="table-cell text-right">
                       <button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(u)}><Edit2 className="w-4 h-4" /></button>
-                      <button className="text-red-500 hover:text-red-700 p-1" onClick={() => handleDelete(u)}><Trash2 className="w-4 h-4" /></button>
+                      <button className={`${u.activo ? 'text-red-500 hover:text-red-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(u)} title={u.activo ? 'Inactivar unidad' : 'Restaurar unidad'}><Trash2 className="w-4 h-4" /></button>
                     </td>
                   </tr>
                 ))}
