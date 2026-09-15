@@ -151,6 +151,21 @@ export function getErrorMessage(error: unknown): string {
   return '';
 }
 
+export function isForeignKeyConstraintError(error: unknown): boolean {
+  if (!error || typeof error !== 'object') return false;
+  const code = 'code' in error ? String((error as { code?: unknown }).code || '') : '';
+  if (code === '23503') return true;
+  const message = getErrorMessage(error).toLowerCase();
+  return message.includes('foreign key') || message.includes('violates foreign key');
+}
+
+export function getDeleteErrorMessage(error: unknown, entityLabel: string): string {
+  if (isForeignKeyConstraintError(error)) {
+    return `No se puede eliminar ${entityLabel} porque tiene registros asociados.`;
+  }
+  return getErrorMessage(error) || `No se pudo eliminar ${entityLabel}.`;
+}
+
 // Detecta errores de Supabase/PostgREST causados por columnas o tablas faltantes
 // en el schema cache. Si se pasan refs, solo devuelve true cuando el mensaje
 // también menciona alguna de esas referencias.

@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { toInteger, toIntegerInput } from '@/lib/utils';
-import { Plus, Edit2, Trash2, X, Loader2, Check } from 'lucide-react';
+import { getDeleteErrorMessage, toInteger, toIntegerInput } from '@/lib/utils';
+import { Plus, Edit2, Trash2, X, Loader2, Check, ToggleLeft, ToggleRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { TasaIva } from '@/lib/types';
 
@@ -54,8 +54,17 @@ export default function TasasIvaPage() {
     if (!window.confirm(`¿${nuevoEstado ? 'Restaurar' : 'Inactivar'} la tasa "${item.nombre}"?`)) return;
     const { error } = await supabase.from('tasas_iva').update({ activo: nuevoEstado }).eq('id', item.id);
     if (error) { toast.error(error.message); return; }
-    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Tasa IVA', accion: nuevoEstado ? 'editar' : 'borrar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} la tasa ${item.nombre}`, registroId: item.id });
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Tasa IVA', accion: 'editar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} la tasa ${item.nombre}`, registroId: item.id });
     toast.success(nuevoEstado ? 'Tasa restaurada' : 'Tasa inactivada');
+    load();
+  }
+
+  async function handleDelete(item: TasaIva) {
+    if (!window.confirm(`¿Eliminar la tasa "${item.nombre}"? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from('tasas_iva').delete().eq('id', item.id);
+    if (error) { toast.error(getDeleteErrorMessage(error, 'la tasa')); return; }
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Tasa IVA', accion: 'borrar', descripcion: `Eliminó la tasa ${item.nombre}`, registroId: item.id });
+    toast.success('Tasa eliminada');
     load();
   }
 
@@ -80,7 +89,8 @@ export default function TasasIvaPage() {
                     <td className="table-cell"><span className="font-semibold text-orange-600 dark:text-orange-400">{t.porcentaje}%</span></td>
                     <td className="table-cell text-right">
                       <button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(t)}><Edit2 className="w-4 h-4" /></button>
-                      <button className={`${t.activo ? 'text-red-500 hover:text-red-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(t)} title={t.activo ? 'Inactivar tasa' : 'Restaurar tasa'}><Trash2 className="w-4 h-4" /></button>
+                      <button className={`${t.activo ? 'text-amber-500 hover:text-amber-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(t)} title={t.activo ? 'Inactivar tasa' : 'Restaurar tasa'}>{t.activo ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}</button>
+                      <button className="text-red-500 hover:text-red-700 p-1" onClick={() => handleDelete(t)} title="Eliminar tasa"><Trash2 className="w-4 h-4" /></button>
                     </td>
                   </tr>
                 ))}

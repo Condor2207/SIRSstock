@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { Plus, Edit2, Trash2, X, Loader2, Check } from 'lucide-react';
+import { getDeleteErrorMessage } from '@/lib/utils';
+import { Plus, Edit2, Trash2, X, Loader2, Check, ToggleLeft, ToggleRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Banco } from '@/lib/types';
 
@@ -49,8 +50,17 @@ export default function BancosPage() {
     if (!window.confirm(`¿${nuevoEstado ? 'Restaurar' : 'Inactivar'} el banco "${item.nombre}"?`)) return;
     const { error } = await supabase.from('bancos').update({ activo: nuevoEstado }).eq('id', item.id);
     if (error) { toast.error(error.message); return; }
-    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Banco', accion: nuevoEstado ? 'editar' : 'borrar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} el banco ${item.nombre}`, registroId: item.id });
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Banco', accion: 'editar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} el banco ${item.nombre}`, registroId: item.id });
     toast.success(nuevoEstado ? 'Banco restaurado' : 'Banco inactivado');
+    load();
+  }
+
+  async function handleDelete(item: Banco) {
+    if (!window.confirm(`¿Eliminar el banco "${item.nombre}"? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from('bancos').delete().eq('id', item.id);
+    if (error) { toast.error(getDeleteErrorMessage(error, 'el banco')); return; }
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Banco', accion: 'borrar', descripcion: `Eliminó el banco ${item.nombre}`, registroId: item.id });
+    toast.success('Banco eliminado');
     load();
   }
 
@@ -72,7 +82,8 @@ export default function BancosPage() {
                     <td className="table-cell font-medium">{b.nombre} {!b.activo && <span className="badge ml-2">Inactivo</span>}</td>
                     <td className="table-cell text-right">
                       <button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(b)}><Edit2 className="w-4 h-4" /></button>
-                      <button className={`${b.activo ? 'text-red-500 hover:text-red-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(b)} title={b.activo ? 'Inactivar banco' : 'Restaurar banco'}><Trash2 className="w-4 h-4" /></button>
+                      <button className={`${b.activo ? 'text-amber-500 hover:text-amber-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(b)} title={b.activo ? 'Inactivar banco' : 'Restaurar banco'}>{b.activo ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}</button>
+                      <button className="text-red-500 hover:text-red-700 p-1" onClick={() => handleDelete(b)} title="Eliminar banco"><Trash2 className="w-4 h-4" /></button>
                     </td>
                   </tr>
                 ))}

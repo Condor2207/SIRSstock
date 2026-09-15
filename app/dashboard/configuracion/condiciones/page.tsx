@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { Plus, Edit2, Trash2, X, Loader2, Check } from 'lucide-react';
+import { getDeleteErrorMessage } from '@/lib/utils';
+import { Plus, Edit2, Trash2, X, Loader2, Check, ToggleLeft, ToggleRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { CondicionVenta } from '@/lib/types';
 
@@ -49,8 +50,17 @@ export default function CondicionesPage() {
     if (!window.confirm(`¿${nuevoEstado ? 'Restaurar' : 'Inactivar'} la condición "${item.nombre}"?`)) return;
     const { error } = await supabase.from('condiciones_venta').update({ activo: nuevoEstado }).eq('id', item.id);
     if (error) { toast.error(error.message); return; }
-    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Condición de venta', accion: nuevoEstado ? 'editar' : 'borrar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} la condición ${item.nombre}`, registroId: item.id });
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Condición de venta', accion: 'editar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} la condición ${item.nombre}`, registroId: item.id });
     toast.success(nuevoEstado ? 'Condición restaurada' : 'Condición inactivada');
+    load();
+  }
+
+  async function handleDelete(item: CondicionVenta) {
+    if (!window.confirm(`¿Eliminar la condición "${item.nombre}"? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from('condiciones_venta').delete().eq('id', item.id);
+    if (error) { toast.error(getDeleteErrorMessage(error, 'la condición')); return; }
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Condición de venta', accion: 'borrar', descripcion: `Eliminó la condición ${item.nombre}`, registroId: item.id });
+    toast.success('Condición eliminada');
     load();
   }
 
@@ -74,7 +84,8 @@ export default function CondicionesPage() {
                     <td className="table-cell">{c.cantidad_cuotas}</td>
                     <td className="table-cell text-right">
                       <button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(c)}><Edit2 className="w-4 h-4" /></button>
-                      <button className={`${c.activo ? 'text-red-500 hover:text-red-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(c)} title={c.activo ? 'Inactivar condición' : 'Restaurar condición'}><Trash2 className="w-4 h-4" /></button>
+                      <button className={`${c.activo ? 'text-amber-500 hover:text-amber-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(c)} title={c.activo ? 'Inactivar condición' : 'Restaurar condición'}>{c.activo ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}</button>
+                      <button className="text-red-500 hover:text-red-700 p-1" onClick={() => handleDelete(c)} title="Eliminar condición"><Trash2 className="w-4 h-4" /></button>
                     </td>
                   </tr>
                 ))}

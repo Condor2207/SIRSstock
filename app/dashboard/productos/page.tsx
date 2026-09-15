@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, getErrorMessage, isSchemaCacheMissing, toInteger, toIntegerInput } from '@/lib/utils';
+import { formatCurrency, getDeleteErrorMessage, getErrorMessage, isSchemaCacheMissing, toInteger, toIntegerInput } from '@/lib/utils';
 import { Plus, Search, Edit2, Trash2, X, Loader2, Package, ToggleLeft, ToggleRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -218,11 +218,11 @@ export default function ProductosPage() {
   }
 
   async function handleDelete(p: Producto) {
-    if (!window.confirm(`¿Inactivar el producto "${p.nombre}"? Podrás reactivarlo luego.`)) return;
-    const { error } = await supabase.from('productos').update({ activo: false }).eq('id', p.id);
-    if (error) { toast.error(getErrorMessage(error)); return; }
-    await logAudit(supabase, { modulo: 'Productos', entidad: 'Producto', accion: 'borrar', descripcion: `Inactivó el producto ${p.nombre}`, registroId: p.id });
-    toast.success('Producto inactivado');
+    if (!window.confirm(`¿Eliminar el producto "${p.nombre}"? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from('productos').delete().eq('id', p.id);
+    if (error) { toast.error(getDeleteErrorMessage(error, 'el producto')); return; }
+    await logAudit(supabase, { modulo: 'Productos', entidad: 'Producto', accion: 'borrar', descripcion: `Eliminó el producto ${p.nombre}`, registroId: p.id });
+    toast.success('Producto eliminado');
     loadData();
   }
 
@@ -320,7 +320,7 @@ export default function ProductosPage() {
                           <button onClick={() => openEdit(p)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-blue-600" title="Editar">
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => handleDelete(p)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500" title="Inactivar">
+                          <button onClick={() => handleDelete(p)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500" title="Eliminar">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>

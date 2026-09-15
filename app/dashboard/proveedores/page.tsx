@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { Plus, Search, Edit2, Trash2, Truck, X, Loader2 } from 'lucide-react';
+import { getDeleteErrorMessage } from '@/lib/utils';
+import { Plus, Search, Edit2, Trash2, Truck, X, Loader2, ToggleLeft, ToggleRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Proveedor, CondicionVenta } from '@/lib/types';
 import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
@@ -105,8 +106,17 @@ export default function ProveedoresPage() {
     if (!window.confirm(`¿${nuevoEstado ? 'Restaurar' : 'Inactivar'} el proveedor "${proveedor.nombre}"?`)) return;
     const { error } = await supabase.from('proveedores').update({ activo: nuevoEstado }).eq('id', proveedor.id);
     if (error) { toast.error(error.message || 'Error al actualizar estado'); return; }
-    await logAudit(supabase, { modulo: 'Proveedores', entidad: 'Proveedor', accion: nuevoEstado ? 'editar' : 'borrar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} el proveedor ${proveedor.nombre}`, registroId: proveedor.id });
+    await logAudit(supabase, { modulo: 'Proveedores', entidad: 'Proveedor', accion: 'editar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} el proveedor ${proveedor.nombre}`, registroId: proveedor.id });
     toast.success(nuevoEstado ? 'Proveedor restaurado' : 'Proveedor inactivado');
+    load();
+  }
+
+  async function handleDelete(proveedor: Proveedor) {
+    if (!window.confirm(`¿Eliminar el proveedor "${proveedor.nombre}"? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from('proveedores').delete().eq('id', proveedor.id);
+    if (error) { toast.error(getDeleteErrorMessage(error, 'el proveedor')); return; }
+    await logAudit(supabase, { modulo: 'Proveedores', entidad: 'Proveedor', accion: 'borrar', descripcion: `Eliminó el proveedor ${proveedor.nombre}`, registroId: proveedor.id });
+    toast.success('Proveedor eliminado');
     load();
   }
 
@@ -168,7 +178,10 @@ export default function ProveedoresPage() {
                           <button onClick={() => openEdit(p)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-blue-600">
                             <Edit2 className="w-3.5 h-3.5" />
                           </button>
-                          <button onClick={() => handleToggleActivo(p)} className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 ${p.activo ? 'text-red-500' : 'text-emerald-600'}`} title={p.activo ? 'Inactivar proveedor' : 'Restaurar proveedor'}>
+                          <button onClick={() => handleToggleActivo(p)} className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 ${p.activo ? 'text-amber-500' : 'text-emerald-600'}`} title={p.activo ? 'Inactivar proveedor' : 'Restaurar proveedor'}>
+                            {p.activo ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+                          </button>
+                          <button onClick={() => handleDelete(p)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500" title="Eliminar proveedor">
                             <Trash2 className="w-3.5 h-3.5" />
                           </button>
                         </div>

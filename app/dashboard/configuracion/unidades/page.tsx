@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { Plus, Edit2, Trash2, X, Loader2, Check } from 'lucide-react';
+import { getDeleteErrorMessage } from '@/lib/utils';
+import { Plus, Edit2, Trash2, X, Loader2, Check, ToggleLeft, ToggleRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { UnidadMedida } from '@/lib/types';
 
@@ -53,8 +54,17 @@ export default function UnidadesPage() {
     if (!window.confirm(`¿${nuevoEstado ? 'Restaurar' : 'Inactivar'} la unidad "${item.nombre}"?`)) return;
     const { error } = await supabase.from('unidades_medida').update({ activo: nuevoEstado }).eq('id', item.id);
     if (error) { toast.error(error.message); return; }
-    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Unidad de medida', accion: nuevoEstado ? 'editar' : 'borrar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} la unidad ${item.nombre}`, registroId: item.id });
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Unidad de medida', accion: 'editar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} la unidad ${item.nombre}`, registroId: item.id });
     toast.success(nuevoEstado ? 'Unidad restaurada' : 'Unidad inactivada');
+    load();
+  }
+
+  async function handleDelete(item: UnidadMedida) {
+    if (!window.confirm(`¿Eliminar la unidad "${item.nombre}"? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from('unidades_medida').delete().eq('id', item.id);
+    if (error) { toast.error(getDeleteErrorMessage(error, 'la unidad')); return; }
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Unidad de medida', accion: 'borrar', descripcion: `Eliminó la unidad ${item.nombre}`, registroId: item.id });
+    toast.success('Unidad eliminada');
     load();
   }
 
@@ -79,7 +89,8 @@ export default function UnidadesPage() {
                     <td className="table-cell"><span className="badge">{u.abreviatura}</span></td>
                     <td className="table-cell text-right">
                       <button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(u)}><Edit2 className="w-4 h-4" /></button>
-                      <button className={`${u.activo ? 'text-red-500 hover:text-red-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(u)} title={u.activo ? 'Inactivar unidad' : 'Restaurar unidad'}><Trash2 className="w-4 h-4" /></button>
+                      <button className={`${u.activo ? 'text-amber-500 hover:text-amber-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(u)} title={u.activo ? 'Inactivar unidad' : 'Restaurar unidad'}>{u.activo ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}</button>
+                      <button className="text-red-500 hover:text-red-700 p-1" onClick={() => handleDelete(u)} title="Eliminar unidad"><Trash2 className="w-4 h-4" /></button>
                     </td>
                   </tr>
                 ))}
