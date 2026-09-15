@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, porcentajeCredito, toInteger, toIntegerInput } from '@/lib/utils';
-import { Plus, Search, Edit2, Trash2, Users, X, Loader2, AlertTriangle } from 'lucide-react';
+import { formatCurrency, getDeleteErrorMessage, porcentajeCredito, toInteger, toIntegerInput } from '@/lib/utils';
+import { Plus, Search, Edit2, Trash2, Users, X, Loader2, AlertTriangle, ToggleLeft, ToggleRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Cliente, ListaPrecios, Vendedor, CondicionVenta } from '@/lib/types';
 import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
@@ -122,8 +122,17 @@ export default function ClientesPage() {
     if (!window.confirm(`¿${nuevoEstado ? 'Restaurar' : 'Inactivar'} el cliente "${cliente.nombre}"?`)) return;
     const { error } = await supabase.from('clientes').update({ activo: nuevoEstado }).eq('id', cliente.id);
     if (error) { toast.error(error.message || 'Error al actualizar estado'); return; }
-    await logAudit(supabase, { modulo: 'Clientes', entidad: 'Cliente', accion: nuevoEstado ? 'editar' : 'borrar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} el cliente ${cliente.nombre}`, registroId: cliente.id });
+    await logAudit(supabase, { modulo: 'Clientes', entidad: 'Cliente', accion: 'editar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} el cliente ${cliente.nombre}`, registroId: cliente.id });
     toast.success(nuevoEstado ? 'Cliente restaurado' : 'Cliente inactivado');
+    loadData();
+  }
+
+  async function handleDelete(cliente: Cliente) {
+    if (!window.confirm(`¿Eliminar el cliente "${cliente.nombre}"? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from('clientes').delete().eq('id', cliente.id);
+    if (error) { toast.error(getDeleteErrorMessage(error, 'el cliente')); return; }
+    await logAudit(supabase, { modulo: 'Clientes', entidad: 'Cliente', accion: 'borrar', descripcion: `Eliminó el cliente ${cliente.nombre}`, registroId: cliente.id });
+    toast.success('Cliente eliminado');
     loadData();
   }
 
@@ -212,7 +221,10 @@ export default function ClientesPage() {
                             <button onClick={() => openEdit(c)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-blue-600">
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
-                            <button onClick={() => handleToggleActivo(c)} className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 ${c.activo ? 'text-red-500' : 'text-emerald-600'}`} title={c.activo ? 'Inactivar cliente' : 'Restaurar cliente'}>
+                            <button onClick={() => handleToggleActivo(c)} className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 ${c.activo ? 'text-amber-500' : 'text-emerald-600'}`} title={c.activo ? 'Inactivar cliente' : 'Restaurar cliente'}>
+                              {c.activo ? <ToggleRight className="w-3.5 h-3.5" /> : <ToggleLeft className="w-3.5 h-3.5" />}
+                            </button>
+                            <button onClick={() => handleDelete(c)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500" title="Eliminar cliente">
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>

@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { getErrorMessage, isSchemaCacheMissing, toInteger, toIntegerInput } from '@/lib/utils';
-import { Plus, Edit2, Trash2, X, Loader2, Check } from 'lucide-react';
+import { getDeleteErrorMessage, getErrorMessage, isSchemaCacheMissing, toInteger, toIntegerInput } from '@/lib/utils';
+import { Plus, Edit2, Trash2, X, Loader2, Check, ToggleLeft, ToggleRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Vendedor } from '@/lib/types';
 
@@ -77,8 +77,17 @@ export default function VendedoresPage() {
     if (!window.confirm(`¿${nuevoEstado ? 'Restaurar' : 'Inactivar'} el vendedor "${item.nombre}"?`)) return;
     const { error } = await supabase.from('vendedores').update({ activo: nuevoEstado }).eq('id', item.id);
     if (error) { toast.error(error.message); return; }
-    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Vendedor', accion: nuevoEstado ? 'editar' : 'borrar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} el vendedor ${item.nombre}`, registroId: item.id });
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Vendedor', accion: 'editar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} el vendedor ${item.nombre}`, registroId: item.id });
     toast.success(nuevoEstado ? 'Vendedor restaurado' : 'Vendedor inactivado');
+    load();
+  }
+
+  async function handleDelete(item: Vendedor) {
+    if (!window.confirm(`¿Eliminar el vendedor "${item.nombre}"? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from('vendedores').delete().eq('id', item.id);
+    if (error) { toast.error(getDeleteErrorMessage(error, 'el vendedor')); return; }
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Vendedor', accion: 'borrar', descripcion: `Eliminó el vendedor ${item.nombre}`, registroId: item.id });
+    toast.success('Vendedor eliminado');
     load();
   }
 
@@ -103,7 +112,8 @@ export default function VendedoresPage() {
                     <td className="table-cell"><span className="font-semibold text-cyan-600">{v.porcentaje_venta ?? 0}%</span></td>
                     <td className="table-cell text-right">
                       <button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(v)}><Edit2 className="w-4 h-4" /></button>
-                      <button className={`${v.activo ? 'text-red-500 hover:text-red-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(v)} title={v.activo ? 'Inactivar vendedor' : 'Restaurar vendedor'}><Trash2 className="w-4 h-4" /></button>
+                      <button className={`${v.activo ? 'text-amber-500 hover:text-amber-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(v)} title={v.activo ? 'Inactivar vendedor' : 'Restaurar vendedor'}>{v.activo ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}</button>
+                      <button className="text-red-500 hover:text-red-700 p-1" onClick={() => handleDelete(v)} title="Eliminar vendedor"><Trash2 className="w-4 h-4" /></button>
                     </td>
                   </tr>
                 ))}

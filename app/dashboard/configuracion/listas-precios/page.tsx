@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { Plus, Edit2, Trash2, X, Loader2, Check } from 'lucide-react';
+import { getDeleteErrorMessage } from '@/lib/utils';
+import { Plus, Edit2, Trash2, X, Loader2, Check, ToggleLeft, ToggleRight } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { ListaPrecios } from '@/lib/types';
 
@@ -49,8 +50,17 @@ export default function ListasPreciosPage() {
     if (!window.confirm(`¿${nuevoEstado ? 'Restaurar' : 'Inactivar'} la lista "${item.nombre}"?`)) return;
     const { error } = await supabase.from('listas_precios').update({ activo: nuevoEstado }).eq('id', item.id);
     if (error) { toast.error(error.message); return; }
-    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Lista de precios', accion: nuevoEstado ? 'editar' : 'borrar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} la lista ${item.nombre}`, registroId: item.id });
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Lista de precios', accion: 'editar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} la lista ${item.nombre}`, registroId: item.id });
     toast.success(nuevoEstado ? 'Lista restaurada' : 'Lista inactivada');
+    load();
+  }
+
+  async function handleDelete(item: ListaPrecios) {
+    if (!window.confirm(`¿Eliminar la lista "${item.nombre}"? Esta acción no se puede deshacer.`)) return;
+    const { error } = await supabase.from('listas_precios').delete().eq('id', item.id);
+    if (error) { toast.error(getDeleteErrorMessage(error, 'la lista')); return; }
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Lista de precios', accion: 'borrar', descripcion: `Eliminó la lista ${item.nombre}`, registroId: item.id });
+    toast.success('Lista eliminada');
     load();
   }
 
@@ -76,7 +86,8 @@ export default function ListasPreciosPage() {
                     <td className="table-cell text-center">{l.aplica_iva ? '✅' : '—'}</td>
                     <td className="table-cell text-right">
                       <button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(l)}><Edit2 className="w-4 h-4" /></button>
-                      <button className={`${l.activo ? 'text-red-500 hover:text-red-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(l)} title={l.activo ? 'Inactivar lista' : 'Restaurar lista'}><Trash2 className="w-4 h-4" /></button>
+                      <button className={`${l.activo ? 'text-amber-500 hover:text-amber-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(l)} title={l.activo ? 'Inactivar lista' : 'Restaurar lista'}>{l.activo ? <ToggleRight className="w-4 h-4" /> : <ToggleLeft className="w-4 h-4" />}</button>
+                      <button className="text-red-500 hover:text-red-700 p-1" onClick={() => handleDelete(l)} title="Eliminar lista"><Trash2 className="w-4 h-4" /></button>
                     </td>
                   </tr>
                 ))}
