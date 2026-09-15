@@ -49,12 +49,13 @@ export default function TasasIvaPage() {
     load();
   }
 
-  async function handleDelete(item: TasaIva) {
-    if (!window.confirm(`¿Eliminar la tasa "${item.nombre}"?`)) return;
-    const { error } = await supabase.from('tasas_iva').delete().eq('id', item.id);
+  async function handleToggleActivo(item: TasaIva) {
+    const nuevoEstado = !item.activo;
+    if (!window.confirm(`¿${nuevoEstado ? 'Restaurar' : 'Inactivar'} la tasa "${item.nombre}"?`)) return;
+    const { error } = await supabase.from('tasas_iva').update({ activo: nuevoEstado }).eq('id', item.id);
     if (error) { toast.error(error.message); return; }
-    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Tasa IVA', accion: 'borrar', descripcion: `Eliminó la tasa ${item.nombre}`, registroId: item.id });
-    toast.success('Tasa eliminada');
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Tasa IVA', accion: nuevoEstado ? 'editar' : 'borrar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} la tasa ${item.nombre}`, registroId: item.id });
+    toast.success(nuevoEstado ? 'Tasa restaurada' : 'Tasa inactivada');
     load();
   }
 
@@ -74,12 +75,12 @@ export default function TasasIvaPage() {
               <thead><tr><th className="table-header">Nombre</th><th className="table-header">Porcentaje</th><th className="table-header text-right">Acciones</th></tr></thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {items.map(t => (
-                  <tr key={t.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                    <td className="table-cell font-medium">{t.nombre}</td>
+                  <tr key={t.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${!t.activo ? 'opacity-60' : ''}`}>
+                    <td className="table-cell font-medium">{t.nombre} {!t.activo && <span className="badge ml-2">Inactiva</span>}</td>
                     <td className="table-cell"><span className="font-semibold text-orange-600 dark:text-orange-400">{t.porcentaje}%</span></td>
                     <td className="table-cell text-right">
                       <button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(t)}><Edit2 className="w-4 h-4" /></button>
-                      <button className="text-red-500 hover:text-red-700 p-1" onClick={() => handleDelete(t)}><Trash2 className="w-4 h-4" /></button>
+                      <button className={`${t.activo ? 'text-red-500 hover:text-red-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(t)} title={t.activo ? 'Inactivar tasa' : 'Restaurar tasa'}><Trash2 className="w-4 h-4" /></button>
                     </td>
                   </tr>
                 ))}

@@ -117,12 +117,13 @@ export default function ClientesPage() {
     }
   }
 
-  async function handleDelete(cliente: Cliente) {
-    if (!window.confirm(`¿Eliminar el cliente "${cliente.nombre}"?`)) return;
-    const { error } = await supabase.from('clientes').delete().eq('id', cliente.id);
-    if (error) { toast.error(error.message || 'Error al eliminar'); return; }
-    await logAudit(supabase, { modulo: 'Clientes', entidad: 'Cliente', accion: 'borrar', descripcion: `Eliminó el cliente ${cliente.nombre}`, registroId: cliente.id });
-    toast.success('Cliente eliminado');
+  async function handleToggleActivo(cliente: Cliente) {
+    const nuevoEstado = !cliente.activo;
+    if (!window.confirm(`¿${nuevoEstado ? 'Restaurar' : 'Inactivar'} el cliente "${cliente.nombre}"?`)) return;
+    const { error } = await supabase.from('clientes').update({ activo: nuevoEstado }).eq('id', cliente.id);
+    if (error) { toast.error(error.message || 'Error al actualizar estado'); return; }
+    await logAudit(supabase, { modulo: 'Clientes', entidad: 'Cliente', accion: nuevoEstado ? 'editar' : 'borrar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} el cliente ${cliente.nombre}`, registroId: cliente.id });
+    toast.success(nuevoEstado ? 'Cliente restaurado' : 'Cliente inactivado');
     loadData();
   }
 
@@ -175,11 +176,12 @@ export default function ClientesPage() {
                     const pct = porcentajeCredito(c.saldo_pendiente, c.limite_credito);
                     const sobreLimite = c.saldo_pendiente > c.limite_credito && c.limite_credito > 0;
                     return (
-                      <tr key={c.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${sobreLimite ? 'bg-yellow-50/50 dark:bg-yellow-900/10' : ''}`}>
+                      <tr key={c.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${sobreLimite ? 'bg-yellow-50/50 dark:bg-yellow-900/10' : ''} ${!c.activo ? 'opacity-60' : ''}`}>
                         <td className="table-cell font-semibold">
                           <div className="flex items-center gap-1.5">
                             {sobreLimite && <AlertTriangle className="w-3.5 h-3.5 text-yellow-500 shrink-0" aria-label="Sobre límite de crédito" />}
                             {c.nombre}
+                            {!c.activo && <span className="badge">Inactivo</span>}
                           </div>
                         </td>
                         <td className="table-cell text-xs">
@@ -210,7 +212,7 @@ export default function ClientesPage() {
                             <button onClick={() => openEdit(c)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-blue-600">
                               <Edit2 className="w-3.5 h-3.5" />
                             </button>
-                            <button onClick={() => handleDelete(c)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500">
+                            <button onClick={() => handleToggleActivo(c)} className={`p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 ${c.activo ? 'text-red-500' : 'text-emerald-600'}`} title={c.activo ? 'Inactivar cliente' : 'Restaurar cliente'}>
                               <Trash2 className="w-3.5 h-3.5" />
                             </button>
                           </div>

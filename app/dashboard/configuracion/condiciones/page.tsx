@@ -44,12 +44,13 @@ export default function CondicionesPage() {
     load();
   }
 
-  async function handleDelete(item: CondicionVenta) {
-    if (!window.confirm(`¿Eliminar la condición "${item.nombre}"?`)) return;
-    const { error } = await supabase.from('condiciones_venta').delete().eq('id', item.id);
+  async function handleToggleActivo(item: CondicionVenta) {
+    const nuevoEstado = !item.activo;
+    if (!window.confirm(`¿${nuevoEstado ? 'Restaurar' : 'Inactivar'} la condición "${item.nombre}"?`)) return;
+    const { error } = await supabase.from('condiciones_venta').update({ activo: nuevoEstado }).eq('id', item.id);
     if (error) { toast.error(error.message); return; }
-    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Condición de venta', accion: 'borrar', descripcion: `Eliminó la condición ${item.nombre}`, registroId: item.id });
-    toast.success('Condición eliminada');
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Condición de venta', accion: nuevoEstado ? 'editar' : 'borrar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} la condición ${item.nombre}`, registroId: item.id });
+    toast.success(nuevoEstado ? 'Condición restaurada' : 'Condición inactivada');
     load();
   }
 
@@ -67,13 +68,13 @@ export default function CondicionesPage() {
               <thead><tr><th className="table-header">Nombre</th><th className="table-header">Plazo (días)</th><th className="table-header">N° Cuotas</th><th className="table-header text-right">Acciones</th></tr></thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {items.map(c => (
-                  <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                    <td className="table-cell font-medium">{c.nombre}</td>
+                  <tr key={c.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${!c.activo ? 'opacity-60' : ''}`}>
+                    <td className="table-cell font-medium">{c.nombre} {!c.activo && <span className="badge ml-2">Inactiva</span>}</td>
                     <td className="table-cell">{c.plazo_dias === 0 ? <span className="text-emerald-600 font-medium">Contado</span> : `${c.plazo_dias} días`}</td>
                     <td className="table-cell">{c.cantidad_cuotas}</td>
                     <td className="table-cell text-right">
                       <button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(c)}><Edit2 className="w-4 h-4" /></button>
-                      <button className="text-red-500 hover:text-red-700 p-1" onClick={() => handleDelete(c)}><Trash2 className="w-4 h-4" /></button>
+                      <button className={`${c.activo ? 'text-red-500 hover:text-red-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(c)} title={c.activo ? 'Inactivar condición' : 'Restaurar condición'}><Trash2 className="w-4 h-4" /></button>
                     </td>
                   </tr>
                 ))}

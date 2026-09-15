@@ -52,12 +52,13 @@ export default function ClasificacionesPage() {
     load();
   }
 
-  async function handleDelete(item: Clasificacion) {
-    if (!window.confirm(`¿Eliminar la clasificación "${item.nombre}"?`)) return;
-    const { error } = await supabase.from('clasificaciones').delete().eq('id', item.id);
+  async function handleToggleActivo(item: Clasificacion) {
+    const nuevoEstado = !item.activo;
+    if (!window.confirm(`¿${nuevoEstado ? 'Restaurar' : 'Inactivar'} la clasificación "${item.nombre}"?`)) return;
+    const { error } = await supabase.from('clasificaciones').update({ activo: nuevoEstado }).eq('id', item.id);
     if (error) { toast.error(error.message); return; }
-    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Clasificación', accion: 'borrar', descripcion: `Eliminó la clasificación ${item.nombre}`, registroId: item.id });
-    toast.success('Clasificación eliminada');
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Clasificación', accion: nuevoEstado ? 'editar' : 'borrar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} la clasificación ${item.nombre}`, registroId: item.id });
+    toast.success(nuevoEstado ? 'Clasificación restaurada' : 'Clasificación inactivada');
     load();
   }
 
@@ -85,14 +86,14 @@ export default function ClasificacionesPage() {
               </thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {items.map(c => (
-                  <tr key={c.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                    <td className="table-cell font-medium">{c.nombre}</td>
+                  <tr key={c.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${!c.activo ? 'opacity-60' : ''}`}>
+                    <td className="table-cell font-medium">{c.nombre} {!c.activo && <span className="badge ml-2">Inactiva</span>}</td>
                     <td className="table-cell text-center">{c.aparece_en_factura ? '✅' : '—'}</td>
                     <td className="table-cell text-center">{c.tiene_stock ? '✅' : '—'}</td>
                     <td className="table-cell text-center">{c.usa_en_produccion ? '✅' : '—'}</td>
                     <td className="table-cell text-right">
                       <button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(c)}><Edit2 className="w-4 h-4" /></button>
-                      <button className="text-red-500 hover:text-red-700 p-1" onClick={() => handleDelete(c)}><Trash2 className="w-4 h-4" /></button>
+                      <button className={`${c.activo ? 'text-red-500 hover:text-red-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(c)} title={c.activo ? 'Inactivar clasificación' : 'Restaurar clasificación'}><Trash2 className="w-4 h-4" /></button>
                     </td>
                   </tr>
                 ))}

@@ -44,12 +44,13 @@ export default function ListasPreciosPage() {
     load();
   }
 
-  async function handleDelete(item: ListaPrecios) {
-    if (!window.confirm(`¿Eliminar la lista "${item.nombre}"?`)) return;
-    const { error } = await supabase.from('listas_precios').delete().eq('id', item.id);
+  async function handleToggleActivo(item: ListaPrecios) {
+    const nuevoEstado = !item.activo;
+    if (!window.confirm(`¿${nuevoEstado ? 'Restaurar' : 'Inactivar'} la lista "${item.nombre}"?`)) return;
+    const { error } = await supabase.from('listas_precios').update({ activo: nuevoEstado }).eq('id', item.id);
     if (error) { toast.error(error.message); return; }
-    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Lista de precios', accion: 'borrar', descripcion: `Eliminó la lista ${item.nombre}`, registroId: item.id });
-    toast.success('Lista eliminada');
+    await logAudit(supabase, { modulo: 'Configuración', entidad: 'Lista de precios', accion: nuevoEstado ? 'editar' : 'borrar', descripcion: `${nuevoEstado ? 'Restauró' : 'Inactivó'} la lista ${item.nombre}`, registroId: item.id });
+    toast.success(nuevoEstado ? 'Lista restaurada' : 'Lista inactivada');
     load();
   }
 
@@ -69,13 +70,13 @@ export default function ListasPreciosPage() {
               <thead><tr><th className="table-header">Nombre</th><th className="table-header">Moneda</th><th className="table-header text-center">IVA Incluido</th><th className="table-header text-right">Acciones</th></tr></thead>
               <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                 {items.map(l => (
-                  <tr key={l.id} className="hover:bg-gray-50 dark:hover:bg-gray-800/50">
-                    <td className="table-cell font-medium">{l.nombre}</td>
+                  <tr key={l.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${!l.activo ? 'opacity-60' : ''}`}>
+                    <td className="table-cell font-medium">{l.nombre} {!l.activo && <span className="badge ml-2">Inactiva</span>}</td>
                     <td className="table-cell"><span className="badge">{l.moneda}</span></td>
                     <td className="table-cell text-center">{l.aplica_iva ? '✅' : '—'}</td>
                     <td className="table-cell text-right">
                       <button className="text-blue-500 hover:text-blue-700 p-1" onClick={() => openEdit(l)}><Edit2 className="w-4 h-4" /></button>
-                      <button className="text-red-500 hover:text-red-700 p-1" onClick={() => handleDelete(l)}><Trash2 className="w-4 h-4" /></button>
+                      <button className={`${l.activo ? 'text-red-500 hover:text-red-700' : 'text-emerald-600 hover:text-emerald-700'} p-1`} onClick={() => handleToggleActivo(l)} title={l.activo ? 'Inactivar lista' : 'Restaurar lista'}><Trash2 className="w-4 h-4" /></button>
                     </td>
                   </tr>
                 ))}
