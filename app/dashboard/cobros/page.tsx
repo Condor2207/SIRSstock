@@ -165,7 +165,7 @@ export default function CobrosPage() {
         fecha: formHeader.fecha,
         tipo_referencia: formHeader.tipo_referencia,
         cliente_id: formHeader.tipo_referencia === 'clientes' ? formHeader.cliente_id : null,
-        proveedor_id: formHeader.tipo_referencia === 'gastos' ? formHeader.proveedor_id : null,
+        ...(formHeader.tipo_referencia === 'gastos' ? { proveedor_id: formHeader.proveedor_id } : {}),
         concepto: formHeader.concepto || null,
         total_facturas: totalDocumentos,
         total_retenciones: totalRetenciones,
