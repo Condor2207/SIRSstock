@@ -160,7 +160,7 @@ export default function CobrosPage() {
     try {
       const { count } = await supabase.from('cobros').select('*', { count: 'exact', head: true });
       const numCobro = `COB-${String((count || 0) + 1).padStart(5, '0')}`;
-      const { data: cobro, error } = await supabase.from('cobros').insert({
+      const cobroPayload: Record<string, any> = {
         numero: numCobro,
         fecha: formHeader.fecha,
         tipo_referencia: formHeader.tipo_referencia,
@@ -171,7 +171,12 @@ export default function CobrosPage() {
         total_retenciones: totalRetenciones,
         total_cobrado: totalCobrado,
         estado: 'registrado',
-      }).select().single();
+      };
+      let { data: cobro, error } = await supabase.from('cobros').insert(cobroPayload).select().single();
+      if (error && formHeader.tipo_referencia === 'clientes' && isSchemaCacheMissing(error, ['tipo_referencia'])) {
+        const { tipo_referencia: _omit, ...legacyPayload } = cobroPayload;
+        ({ data: cobro, error } = await supabase.from('cobros').insert(legacyPayload).select().single());
+      }
       if (error) throw error;
 
       if (formHeader.tipo_referencia === 'clientes' && facturasSelec.length > 0) {
@@ -232,14 +237,21 @@ export default function CobrosPage() {
 
   async function handleDelete(cobroId: string) {
     if (!window.confirm('¿Eliminar este cobro? Se revertirán los saldos aplicados.')) return;
-    const { data: cobro, error } = await supabase
+    let { data: cobro, error } = await supabase
       .from('cobros')
       .select('id, numero, tipo_referencia, cliente_id, cobro_facturas(venta_id, monto_aplicado), cobro_gastos(gasto_id, monto_aplicado)')
       .eq('id', cobroId)
       .single();
+    if (error && isSchemaCacheMissing(error, ['tipo_referencia'])) {
+      ({ data: cobro, error } = await supabase
+        .from('cobros')
+        .select('id, numero, cliente_id, cobro_facturas(venta_id, monto_aplicado)')
+        .eq('id', cobroId)
+        .single() as any);
+    }
     if (error || !cobro) { toast.error(error?.message || 'No se pudo cargar el cobro'); return; }
 
-    if (cobro.tipo_referencia === 'clientes') {
+    if ((cobro as any).tipo_referencia === undefined || (cobro as any).tipo_referencia === 'clientes') {
       for (const item of (cobro as any).cobro_facturas || []) {
         const { data: venta } = await supabase.from('ventas').select('saldo_pendiente, total').eq('id', item.venta_id).single();
         if (venta) {
