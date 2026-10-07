@@ -28,6 +28,7 @@ export default function CobrosPage() {
   const [search, setSearch] = useState('');
   const [showModal, setShowModal] = useState(false);
   const [detalle, setDetalle] = useState<any | null>(null);
+  const [detalleLoading, setDetalleLoading] = useState(false);
   const [saving, setSaving] = useState(false);
 
   const [formHeader, setFormHeader] = useState({
@@ -46,12 +47,29 @@ export default function CobrosPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
-    const [cobRes, cliRes, provRes, banRes] = await Promise.all([
-      supabase.from('cobros').select('*, clientes(nombre), proveedores(nombre)').order('created_at', { ascending: false }).limit(100),
+    const fetchCobros = async (includeProveedores: boolean) => {
+      const registros: any[] = [];
+      for (let offset = 0; ; offset += 500) {
+        const selection = includeProveedores ? '*, clientes(nombre), proveedores(nombre)' : '*, clientes(nombre)';
+        const { data, error } = await supabase.from('cobros').select(selection)
+          .order('created_at', { ascending: false }).order('id').range(offset, offset + 499);
+        if (error) return { data: null, error };
+        const rows = data || [];
+        registros.push(...rows);
+        if (rows.length < 500) break;
+      }
+      return { data: registros, error: null };
+    };
+    const [initialCobros, cliRes, provRes, banRes] = await Promise.all([
+      fetchCobros(true),
       supabase.from('clientes').select('*').eq('activo', true).order('nombre'),
       supabase.from('proveedores').select('*').eq('activo', true).order('nombre'),
       supabase.from('bancos').select('*').eq('activo', true).order('nombre'),
     ]);
+    const cobRes = initialCobros.error && isSchemaCacheMissing(initialCobros.error, ['proveedores'])
+      ? await fetchCobros(false)
+      : initialCobros;
+    if (cobRes.error) toast.error(getErrorMessage(cobRes.error) || 'No se pudo cargar el historial de cobros');
     setCobros(cobRes.data || []);
     setClientes(cliRes.data as Cliente[] || []);
     setProveedores(provRes.data as Proveedor[] || []);
@@ -60,6 +78,29 @@ export default function CobrosPage() {
   }, [supabase]);
 
   useEffect(() => { load(); }, [load]);
+
+  async function openDetalle(cobro: any) {
+    setDetalle(cobro);
+    setDetalleLoading(true);
+    try {
+      const selection = '*, cobro_facturas(monto_aplicado, ventas(numero, fecha, total)), cobro_gastos(monto_aplicado, gastos(categoria, titulo, fecha, monto)), cobro_retenciones(numero_retencion, concepto, monto), cobro_medios_pago(tipo, monto, numero_cheque, fecha_cheque, numero_transaccion, bancos(nombre))';
+      let { data, error } = await supabase.from('cobros').select(selection).eq('id', cobro.id).single();
+      if (error && isSchemaCacheMissing(error, ['cobro_gastos'])) {
+        ({ data, error } = await supabase.from('cobros')
+          .select('*, cobro_facturas(monto_aplicado, ventas(numero, fecha, total)), cobro_retenciones(numero_retencion, concepto, monto), cobro_medios_pago(tipo, monto, numero_cheque, fecha_cheque, numero_transaccion, bancos(nombre))')
+          .eq('id', cobro.id).single());
+      }
+      if (error) {
+        toast.error(getErrorMessage(error) || 'No se pudo cargar el detalle del cobro');
+      } else if (data) {
+        setDetalle(data);
+      }
+    } catch (error) {
+      toast.error(getErrorMessage(error) || 'No se pudo cargar el detalle del cobro');
+    } finally {
+      setDetalleLoading(false);
+    }
+  }
 
   async function handleClienteChange(clienteId: string) {
     setFormHeader(f => ({ ...f, cliente_id: clienteId }));
@@ -295,6 +336,10 @@ export default function CobrosPage() {
     <>
       <Header title="Cobros" subtitle="Registro de cobros a clientes o gastos a crédito" />
       <div className="p-4 md:p-6 space-y-4">
+        <div>
+          <h2 className="font-semibold text-lg">Historial de cobros</h2>
+          <p className="text-sm text-gray-500">{cobros.length} cobro{cobros.length === 1 ? '' : 's'} registrado{cobros.length === 1 ? '' : 's'}</p>
+        </div>
         <div className="flex flex-col sm:flex-row gap-3 justify-between">
           <div className="relative flex-1 max-w-sm">
             <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
@@ -341,7 +386,7 @@ export default function CobrosPage() {
                         <span className={`badge ${c.estado === 'anulado' ? 'bg-red-100 text-red-600' : 'bg-green-100 text-green-700'}`}>{c.estado}</span>
                       </td>
                       <td className="table-cell">
-                        <button onClick={() => setDetalle(c)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-blue-600">
+                        <button onClick={() => openDetalle(c)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-gray-500 hover:text-blue-600" aria-label={`Ver cobro ${c.numero}`}>
                           <Eye className="w-4 h-4" />
                         </button>
                         <button onClick={() => handleDelete(c.id)} className="p-1.5 rounded hover:bg-gray-100 dark:hover:bg-gray-700 text-red-500">
@@ -604,11 +649,14 @@ export default function CobrosPage() {
 
       {detalle && (
         <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50 p-4">
-          <div className="card w-full max-w-md p-6 space-y-3">
+          <div className="card w-full max-w-2xl max-h-[90vh] overflow-y-auto p-6 space-y-4">
             <div className="flex justify-between items-center">
               <h2 className="section-title">Cobro {detalle.numero}</h2>
               <button onClick={() => setDetalle(null)}><X className="w-4 h-4" /></button>
             </div>
+            {detalleLoading ? (
+              <div className="flex justify-center p-8"><Loader2 className="w-6 h-6 animate-spin text-blue-500" /></div>
+            ) : <>
             <div className="text-sm space-y-1">
               <p><span className="text-gray-500">Tipo:</span> <strong className="capitalize">{detalle.tipo_referencia || 'clientes'}</strong></p>
               {detalle.tipo_referencia === 'gastos'
@@ -617,8 +665,55 @@ export default function CobrosPage() {
               <p><span className="text-gray-500">Fecha:</span> {formatDate(detalle.fecha)}</p>
               {detalle.concepto && <p><span className="text-gray-500">Concepto:</span> {detalle.concepto}</p>}
               <p><span className="text-gray-500">Total documentos:</span> {formatCurrency(detalle.total_facturas)}</p>
+              <p><span className="text-gray-500">Retenciones:</span> {formatCurrency(detalle.total_retenciones)}</p>
               <p><span className="text-gray-500">Total cobrado:</span> <strong className="text-emerald-600">{formatCurrency(detalle.total_cobrado)}</strong></p>
             </div>
+            {(detalle.cobro_facturas?.length > 0 || detalle.cobro_gastos?.length > 0) && (
+              <section>
+                <h3 className="font-semibold text-sm mb-2">Documentos aplicados</h3>
+                <div className="space-y-1 text-sm">
+                  {detalle.cobro_facturas?.map((item: any, index: number) => (
+                    <div key={index} className="flex justify-between gap-3 border-b border-gray-100 dark:border-gray-700 py-1">
+                      <span>Factura {item.ventas?.numero || '—'} · {formatDate(item.ventas?.fecha)}</span>
+                      <strong>{formatCurrency(item.monto_aplicado)}</strong>
+                    </div>
+                  ))}
+                  {detalle.cobro_gastos?.map((item: any, index: number) => (
+                    <div key={index} className="flex justify-between gap-3 border-b border-gray-100 dark:border-gray-700 py-1">
+                      <span>{item.gastos?.categoria || item.gastos?.titulo || 'Gasto'} · {formatDate(item.gastos?.fecha)}</span>
+                      <strong>{formatCurrency(item.monto_aplicado)}</strong>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+            {detalle.cobro_medios_pago?.length > 0 && (
+              <section>
+                <h3 className="font-semibold text-sm mb-2">Medios de pago</h3>
+                <div className="space-y-1 text-sm">
+                  {detalle.cobro_medios_pago.map((medio: any, index: number) => (
+                    <div key={index} className="flex justify-between gap-3 border-b border-gray-100 dark:border-gray-700 py-1">
+                      <span className="capitalize">{medio.tipo.replaceAll('_', ' ')}{medio.bancos?.nombre ? ` · ${medio.bancos.nombre}` : ''}{medio.numero_cheque ? ` · Cheque ${medio.numero_cheque}` : ''}{medio.numero_transaccion ? ` · Transacción ${medio.numero_transaccion}` : ''}</span>
+                      <strong>{formatCurrency(medio.monto)}</strong>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+            {detalle.cobro_retenciones?.length > 0 && (
+              <section>
+                <h3 className="font-semibold text-sm mb-2">Retenciones</h3>
+                <div className="space-y-1 text-sm">
+                  {detalle.cobro_retenciones.map((retencion: any, index: number) => (
+                    <div key={index} className="flex justify-between gap-3 border-b border-gray-100 dark:border-gray-700 py-1">
+                      <span>{retencion.numero_retencion || 'Retención'}{retencion.concepto ? ` · ${retencion.concepto}` : ''}</span>
+                      <strong>{formatCurrency(retencion.monto)}</strong>
+                    </div>
+                  ))}
+                </div>
+              </section>
+            )}
+            </>}
             <button onClick={() => setDetalle(null)} className="btn-secondary w-full">Cerrar</button>
           </div>
         </div>
