@@ -52,7 +52,7 @@ export default function CobrosPage() {
       for (let offset = 0; ; offset += 500) {
         const selection = includeProveedores ? '*, clientes(nombre), proveedores(nombre)' : '*, clientes(nombre)';
         const { data, error } = await supabase.from('cobros').select(selection)
-          .order('created_at', { ascending: false }).range(offset, offset + 499);
+          .order('created_at', { ascending: false }).order('id').range(offset, offset + 499);
         if (error) return { data: null, error };
         const rows = data || [];
         registros.push(...rows);
@@ -82,19 +82,24 @@ export default function CobrosPage() {
   async function openDetalle(cobro: any) {
     setDetalle(cobro);
     setDetalleLoading(true);
-    const selection = '*, cobro_facturas(monto_aplicado, ventas(numero, fecha, total)), cobro_gastos(monto_aplicado, gastos(categoria, titulo, fecha, monto)), cobro_retenciones(numero_retencion, concepto, monto), cobro_medios_pago(tipo, monto, numero_cheque, fecha_cheque, numero_transaccion, bancos(nombre))';
-    let { data, error } = await supabase.from('cobros').select(selection).eq('id', cobro.id).single();
-    if (error && isSchemaCacheMissing(error, ['cobro_gastos'])) {
-      ({ data, error } = await supabase.from('cobros')
-        .select('*, cobro_facturas(monto_aplicado, ventas(numero, fecha, total)), cobro_retenciones(numero_retencion, concepto, monto), cobro_medios_pago(tipo, monto, numero_cheque, fecha_cheque, numero_transaccion, bancos(nombre))')
-        .eq('id', cobro.id).single());
-    }
-    if (error) {
+    try {
+      const selection = '*, cobro_facturas(monto_aplicado, ventas(numero, fecha, total)), cobro_gastos(monto_aplicado, gastos(categoria, titulo, fecha, monto)), cobro_retenciones(numero_retencion, concepto, monto), cobro_medios_pago(tipo, monto, numero_cheque, fecha_cheque, numero_transaccion, bancos(nombre))';
+      let { data, error } = await supabase.from('cobros').select(selection).eq('id', cobro.id).single();
+      if (error && isSchemaCacheMissing(error, ['cobro_gastos'])) {
+        ({ data, error } = await supabase.from('cobros')
+          .select('*, cobro_facturas(monto_aplicado, ventas(numero, fecha, total)), cobro_retenciones(numero_retencion, concepto, monto), cobro_medios_pago(tipo, monto, numero_cheque, fecha_cheque, numero_transaccion, bancos(nombre))')
+          .eq('id', cobro.id).single());
+      }
+      if (error) {
+        toast.error(getErrorMessage(error) || 'No se pudo cargar el detalle del cobro');
+      } else if (data) {
+        setDetalle(data);
+      }
+    } catch (error) {
       toast.error(getErrorMessage(error) || 'No se pudo cargar el detalle del cobro');
-    } else if (data) {
-      setDetalle(data);
+    } finally {
+      setDetalleLoading(false);
     }
-    setDetalleLoading(false);
   }
 
   async function handleClienteChange(clienteId: string) {
