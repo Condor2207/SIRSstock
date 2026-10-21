@@ -11,7 +11,7 @@ import toast from 'react-hot-toast';
 import Link from 'next/link';
 import { SearchSelect } from '@/components/SearchSelect';
 import type { PostgrestError } from '@supabase/supabase-js';
-import type { Cliente, Producto, Lote, NuevaVentaItem, EmpresaConfig, ListaPrecios } from '@/lib/types';
+import type { Cliente, Producto, Lote, NuevaVentaItem, EmpresaConfig, ListaPrecios, Moneda } from '@/lib/types';
 
 // Columns added in later migrations (003, 009) that may be absent in older deployed schemas
 const OPTIONAL_VENTA_COLUMNS = ['tasa_iva', 'timbrado', 'nota_remision', 'fecha_vencimiento_factura', 'motivo_anulacion', 'leyenda'];
@@ -48,6 +48,7 @@ export default function NuevaVentaPage() {
   const [leyenda, setLeyenda] = useState('');
   const [listas, setListas] = useState<ListaPrecios[]>([]);
   const [listaId, setListaId] = useState('');
+  const [monedas, setMonedas] = useState<Moneda[]>([]);
   const [empresaConfig, setEmpresaConfig] = useState<EmpresaConfig | null>(null);
   const [ventaConfirmada, setVentaConfirmada] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -60,7 +61,7 @@ export default function NuevaVentaPage() {
   }, []);
 
   async function loadData() {
-    const [clientesRes, productosRes, empresaRes, listasRes] = await Promise.all([
+    const [clientesRes, productosRes, empresaRes, listasRes, monedasRes] = await Promise.all([
       supabase.from('clientes').select('*, lista_precios_id, vendedor_id').eq('activo', true).order('nombre'),
       supabase.from('productos')
         .select('*, lotes(id, numero_lote, fecha_vencimiento, stock_actual), clasificaciones(aparece_en_factura), tasa_iva_ref:tasas_iva(porcentaje), producto_precios(*)')
@@ -68,8 +69,10 @@ export default function NuevaVentaPage() {
         .order('nombre'),
       supabase.from('empresa_config').select('*').eq('id', 1).single(),
       supabase.from('listas_precios').select('*').eq('activo', true).order('nombre'),
+      supabase.from('monedas').select('*'),
     ]);
     setListas((listasRes.data || []) as ListaPrecios[]);
+    setMonedas((monedasRes.data || []) as Moneda[]);
     setClientes(clientesRes.data as Cliente[] || []);
     const prods = (productosRes.data || []) as Producto[];
     // Ordenar lotes FEFO
@@ -98,11 +101,19 @@ export default function NuevaVentaPage() {
     repreciarItems(nuevaLista);
   }
 
+  // Los precios se cotizan en la moneda del producto y se convierten a Gs. con el tipo de cambio configurado
+  function aGs(producto: Producto, monto: number): number {
+    const codigo = producto.moneda_venta || 'PYG';
+    if (codigo === 'PYG') return toInteger(monto, 0);
+    const tc = Number(monedas.find(m => m.codigo === codigo)?.tipo_cambio) || 1;
+    return Math.round(monto * tc);
+  }
+
   function precioDeLista(producto: Producto, lista: string): { precio: number; sinPrecio: boolean } {
-    if (!lista) return { precio: toInteger(producto.precio_venta, 0), sinPrecio: false };
+    if (!lista) return { precio: aGs(producto, producto.precio_venta), sinPrecio: false };
     const pp = (producto as any).producto_precios?.find((x: any) => x.lista_precios_id === lista);
-    if (pp && pp.precio != null) return { precio: toInteger(pp.precio, 0), sinPrecio: false };
-    return { precio: toInteger(producto.precio_venta, 0), sinPrecio: true };
+    if (pp && pp.precio != null) return { precio: aGs(producto, pp.precio), sinPrecio: false };
+    return { precio: aGs(producto, producto.precio_venta), sinPrecio: true };
   }
 
   // Recalcula precios según la lista, conservando cantidades y precios manuales
@@ -679,6 +690,7 @@ export default function NuevaVentaPage() {
                           </div>
                           <div className="text-right shrink-0 whitespace-nowrap">
                             <div className="font-semibold text-emerald-600">{formatCurrency(precioDeLista(p, listaId).precio)}</div>
+                            {p.moneda_venta && p.moneda_venta !== 'PYG' && <div className="text-xs text-gray-400">cotizado en {p.moneda_venta}</div>}
                             <div className="text-xs text-gray-400">
                               {(p as any).es_servicio ? 'Servicio' : `Stock: ${p.stock_actual}`} · IVA {toInteger((p as any).tasa_iva_ref?.porcentaje ?? 10, 10)}%
                             </div>

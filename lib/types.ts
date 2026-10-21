@@ -26,6 +26,7 @@ export interface Producto {
   categoria?: Categoria;
   unidad_medida: string;
   precio_venta: number;
+  moneda_venta?: string;
   precio_compra: number;
   stock_actual: number;
   stock_minimo: number;
@@ -546,4 +547,14 @@ export interface AuditLog {
   registro_id?: string | null;
   detalles?: Record<string, unknown>;
   created_at: string;
+}
+
+export interface Moneda {
+  id: string;
+  codigo: string;
+  nombre: string;
+  simbolo: string;
+  tipo_cambio: number;
+  activo: boolean;
+  updated_at?: string;
 }

@@ -4,12 +4,12 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { ean13Svg, escapeHtml, esEan13Valido, generarEan13, formatCurrency, getDeleteErrorMessage, getErrorMessage, isSchemaCacheMissing, toInteger, toIntegerInput } from '@/lib/utils';
+import { ean13Svg, escapeHtml, esEan13Valido, generarEan13, formatCurrency, formatMonto, getDeleteErrorMessage, getErrorMessage, isSchemaCacheMissing, toInteger, toIntegerInput } from '@/lib/utils';
 import { Plus, Search, Edit2, Trash2, X, Loader2, Package, ToggleLeft, ToggleRight, Copy, Printer, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SearchSelect } from '@/components/SearchSelect';
 import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
-import type { Producto, Categoria, Clasificacion, TasaIva, Marca, Linea, Grupo, UnidadMedida, ListaPrecios, MarcaLinea, MarcaGrupo } from '@/lib/types';
+import type { Producto, Categoria, Clasificacion, TasaIva, Marca, Linea, Grupo, UnidadMedida, ListaPrecios, MarcaLinea, MarcaGrupo, Moneda } from '@/lib/types';
 
 export default function ProductosPage() {
   const supabase = createClient();
@@ -37,9 +37,11 @@ export default function ProductosPage() {
     codigo_barras_en: '', notas_en: '',
   });
 
+  const [monedas, setMonedas] = useState<Moneda[]>([{ id: 'pyg', codigo: 'PYG', nombre: 'Guaraní', simbolo: 'Gs.', tipo_cambio: 1, activo: true }]);
+
   const [form, setForm] = useState({
     sku: '', nombre: '', descripcion: '', categoria_id: '',
-    unidad_medida: '', precio_venta: '', precio_compra: '',
+    unidad_medida: '', moneda_venta: 'PYG', precio_venta: '', precio_compra: '',
     stock_minimo: '', control_lote: false,
     clasificacion_id: '', codigo_barras: '',
     marca_id: '', linea_id: '', grupo_id: '',
@@ -49,7 +51,7 @@ export default function ProductosPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true);
-    const [prodRes, catRes, clasRes, tivaRes, marcaRes, lineaRes, grupoRes, unidRes, listaRes, marcaLineasRes, marcaGruposRes] = await Promise.all([
+    const [prodRes, catRes, clasRes, tivaRes, marcaRes, lineaRes, grupoRes, unidRes, listaRes, marcaLineasRes, marcaGruposRes, monedaRes] = await Promise.all([
       supabase.from('productos').select('*, categoria:categorias(nombre), clasificacion:clasificaciones(nombre), tasa_iva_ref:tasas_iva(nombre,porcentaje), producto_precios(lista_precios_id)').order('nombre'),
       supabase.from('categorias').select('*').order('nombre'),
       supabase.from('clasificaciones').select('*').eq('activo', true).order('nombre'),
@@ -61,7 +63,9 @@ export default function ProductosPage() {
       supabase.from('listas_precios').select('*').eq('activo', true).order('nombre'),
       supabase.from('marca_lineas').select('marca_id,linea_id'),
       supabase.from('marca_grupos').select('marca_id,grupo_id'),
+      supabase.from('monedas').select('*').eq('activo', true).order('codigo'),
     ]);
+    if (monedaRes.data && monedaRes.data.length > 0) setMonedas(monedaRes.data as Moneda[]);
     setProductos(prodRes.data as any[] || []);
     setCategorias(catRes.data as Categoria[] || []);
     setClasificaciones(clasRes.data as Clasificacion[] || []);
@@ -83,7 +87,7 @@ export default function ProductosPage() {
     setForm({
       sku: p.sku, nombre: p.nombre, descripcion: p.descripcion || '',
       categoria_id: p.categoria_id || '', unidad_medida: p.unidad_medida,
-      precio_venta: String(toInteger(p.precio_venta, 0)), precio_compra: String(toInteger(p.precio_compra || 0, 0)),
+      moneda_venta: p.moneda_venta || 'PYG', precio_venta: String(toInteger(p.precio_venta, 0)), precio_compra: String(toInteger(p.precio_compra || 0, 0)),
       stock_minimo: String(toInteger(p.stock_minimo || 0, 0)), control_lote: p.control_lote,
       clasificacion_id: (p as any).clasificacion_id || '', codigo_barras: (p as any).codigo_barras || '',
       marca_id: (p as any).marca_id || '', linea_id: (p as any).linea_id || '', grupo_id: (p as any).grupo_id || '',
@@ -111,7 +115,7 @@ export default function ProductosPage() {
 
   function openNew() {
     setEditando(null);
-    setForm({ sku: '', nombre: '', descripcion: '', categoria_id: '', unidad_medida: unidades[0]?.nombre || 'Unidad', precio_venta: '', precio_compra: '', stock_minimo: '0', control_lote: false, clasificacion_id: '', codigo_barras: '', marca_id: '', linea_id: '', grupo_id: '', tasa_iva_id: '', es_exportacion: false, es_servicio: false, plazo_vencimiento_meses: '36', porcentaje_comision: '0' });
+    setForm({ sku: '', nombre: '', descripcion: '', categoria_id: '', unidad_medida: unidades[0]?.nombre || 'Unidad', moneda_venta: 'PYG', precio_venta: '', precio_compra: '', stock_minimo: '0', control_lote: false, clasificacion_id: '', codigo_barras: '', marca_id: '', linea_id: '', grupo_id: '', tasa_iva_id: '', es_exportacion: false, es_servicio: false, plazo_vencimiento_meses: '36', porcentaje_comision: '0' });
     setPreciosPorLista({});
     setFormExport({ nombre_en: '', descripcion_en: '', unidad_medida_en: '', precio_usd: '', codigo_barras_en: '', notas_en: '' });
     setTabModal('general');
@@ -178,13 +182,14 @@ export default function ProductosPage() {
       linea_id: form.linea_id || null,
       grupo_id: form.grupo_id || null,
       tasa_iva_id: form.tasa_iva_id || null,
+      moneda_venta: form.moneda_venta || 'PYG',
       es_exportacion: form.es_exportacion,
       plazo_vencimiento_meses: toInteger(form.plazo_vencimiento_meses, 36) || 36,
       porcentaje_comision: toInteger(form.porcentaje_comision, 0),
     };
     try {
       const payload = { ...payloadBase, ...payloadExtra };
-      const retryRefs = ['clasificacion_id', 'codigo_barras', 'marca_id', 'linea_id', 'grupo_id', 'tasa_iva_id', 'es_exportacion', 'es_servicio', 'plazo_vencimiento_meses', 'porcentaje_comision'];
+      const retryRefs = ['clasificacion_id', 'codigo_barras', 'marca_id', 'linea_id', 'grupo_id', 'tasa_iva_id', 'moneda_venta', 'es_exportacion', 'es_servicio', 'plazo_vencimiento_meses', 'porcentaje_comision'];
       let productoId = editando?.id;
       let auditAction: 'crear' | 'editar' = editando ? 'editar' : 'crear';
       if (editando) {
@@ -338,7 +343,7 @@ export default function ProductosPage() {
                       <td className="table-cell text-gray-500 text-xs">{(p as any).clasificacion?.nombre || '—'}</td>
                       <td className="table-cell text-xs">{p.unidad_medida}</td>
                       <td className="table-cell font-semibold">
-                        {formatCurrency(p.precio_venta)}
+                        {formatMonto(p.precio_venta, p.moneda_venta || 'PYG')}
                         {((p as any).producto_precios?.length || 0) > 0 && (
                           <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700" title="Listas de precios asignadas">{(p as any).producto_precios.length} lista{(p as any).producto_precios.length > 1 ? 's' : ''}</span>
                         )}
@@ -505,9 +510,15 @@ export default function ProductosPage() {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-3 gap-3">
+                  <div className="grid grid-cols-4 gap-3">
                     <div>
-                      <label className="label">Precio Venta (Gs.)</label>
+                      <label className="label">Moneda</label>
+                      <select className="input" value={form.moneda_venta} onChange={e => setForm(f => ({ ...f, moneda_venta: e.target.value }))}>
+                        {monedas.map(m => <option key={m.id} value={m.codigo}>{m.codigo}</option>)}
+                      </select>
+                    </div>
+                    <div>
+                      <label className="label">Precio Venta ({form.moneda_venta === 'PYG' ? 'Gs.' : form.moneda_venta})</label>
                       <input type="number" min="0" step="1" inputMode="numeric" className="input" value={form.precio_venta} onChange={e => setForm(f => ({ ...f, precio_venta: toIntegerInput(e.target.value) }))} />
                     </div>
                     <div>
