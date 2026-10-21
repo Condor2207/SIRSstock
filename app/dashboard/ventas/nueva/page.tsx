@@ -128,14 +128,14 @@ export default function NuevaVentaPage() {
   function buscarProductos(term: string) {
     setBuscarProducto(term);
     if (!term) {
-      setProductosFiltrados(productos.slice(0, 12));
+      setProductosFiltrados(productos);
       return;
     }
     setProductosFiltrados(
       productos.filter(p =>
         p.nombre.toLowerCase().includes(term.toLowerCase()) ||
         p.sku.toLowerCase().includes(term.toLowerCase())
-      ).slice(0, 12)
+      )
     );
   }
 
@@ -647,7 +647,7 @@ export default function NuevaVentaPage() {
             <div className="card p-5">
               <div className="flex items-center justify-between mb-4">
                 <h2 className="section-title">Productos</h2>
-                <button onClick={() => { setMostrarBuscador(true); setProductosFiltrados(productos.slice(0, 12)); }} className="btn-primary flex items-center gap-2 text-xs py-1.5">
+                <button onClick={() => { setMostrarBuscador(true); setProductosFiltrados(productos); }} className="btn-primary flex items-center gap-2 text-xs py-1.5">
                   <Plus className="w-3.5 h-3.5" /> Agregar producto
                 </button>
               </div>
@@ -688,6 +688,11 @@ export default function NuevaVentaPage() {
                           </div>
                         </button>
                       ))}
+                    </div>
+                  )}
+                  {productosFiltrados.length === 0 && (
+                    <div className="absolute z-10 top-full left-0 right-0 mt-1 card shadow-lg p-3 text-sm text-gray-500">
+                      {buscarProducto ? 'No se encontraron productos.' : 'No hay productos disponibles para vender.'}
                     </div>
                   )}
                 </div>
