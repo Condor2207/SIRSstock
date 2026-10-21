@@ -216,7 +216,8 @@ export default function NuevaVentaPage() {
     const timbradoDigits = toDigitsOnly(timbrado);
     const notaRemisionDigits = toDigitsOnly(notaRemision);
     if (!clienteId) { toast.error('Seleccioná un cliente'); return; }
-    if (numeroFactura && !esNumeroFacturaValido(numeroFactura)) { toast.error('El número de factura debe tener el formato 001-001-1234567'); return; }
+    if (!numeroFacturaFmt) { toast.error('Ingresá el número de factura'); return; }
+    if (!esNumeroFacturaValido(numeroFacturaFmt)) { toast.error('El número de factura debe tener el formato 001-001-1234567'); return; }
     if (items.length === 0) { toast.error('Agregá al menos un producto'); return; }
     if (condicionPago === 'credito' && total > creditoDisponible && creditoDisponible > 0) {
       toast('⚠️ El cliente supera su límite de crédito. Disponible: ' + formatCurrency(creditoDisponible), { icon: '⚠️', style: { background: '#fef9c3', color: '#854d0e' } });
@@ -553,7 +554,7 @@ export default function NuevaVentaPage() {
                 className="btn-primary flex items-center justify-center gap-2 py-3 px-8"
               >
                 <Printer className="w-5 h-5" />
-                {numeroFactura ? 'Imprimir Factura' : 'Imprimir Ticket'}
+                Imprimir Factura
               </button>
               <button
                 onClick={resetForm}
@@ -787,11 +788,11 @@ export default function NuevaVentaPage() {
 
             {/* Factura */}
             <div className="card p-5">
-              <h2 className="section-title mb-4">Datos de factura (opcional)</h2>
+              <h2 className="section-title mb-4">Datos de factura (obligatorio)</h2>
               <div className="grid grid-cols-2 gap-4">
                 <div>
-                  <label className="label">Número de factura</label>
-                  <input className={`input ${numeroFactura && !esNumeroFacturaValido(numeroFactura) ? 'border-red-400' : ''}`} placeholder="001-001-1234567" maxLength={15} value={numeroFactura} onChange={e => setNumeroFactura(maskNumeroFactura(e.target.value))} />
+                  <label className="label">Número de factura *</label>
+                  <input required className={`input ${numeroFactura && !esNumeroFacturaValido(numeroFactura) ? 'border-red-400' : ''}`} placeholder="001-001-1234567" maxLength={15} value={numeroFactura} onChange={e => setNumeroFactura(maskNumeroFactura(e.target.value))} />
                   {numeroFactura && !esNumeroFacturaValido(numeroFactura) && <p className="text-xs text-red-500 mt-1">Formato requerido: 001-001-1234567</p>}
                 </div>
                 <div>
