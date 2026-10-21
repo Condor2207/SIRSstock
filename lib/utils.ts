@@ -180,3 +180,108 @@ export function isSchemaCacheMissing(error: unknown, refs: string[] = []): boole
     return new RegExp(`(^|[^a-z0-9_])${escaped}([^a-z0-9_]|$)`).test(message);
   });
 }
+
+// ============================================================
+// Número de factura: formato 001-001-1234567 (3-3-7 dígitos)
+// ============================================================
+export const FACTURA_REGEX = /^\d{3}-\d{3}-\d{7}$/;
+
+export function esNumeroFacturaValido(value: string): boolean {
+  return FACTURA_REGEX.test((value || '').trim());
+}
+
+// Aplica máscara mientras se escribe: 001001 1234567 -> 001-001-1234567
+export function maskNumeroFactura(value: string): string {
+  const d = toDigitsOnly(value).slice(0, 13);
+  if (d.length <= 3) return d;
+  if (d.length <= 6) return `${d.slice(0, 3)}-${d.slice(3)}`;
+  return `${d.slice(0, 3)}-${d.slice(3, 6)}-${d.slice(6)}`;
+}
+
+// Muestra un número de factura. Los números con formato anterior se
+// conservan tal cual; los de 13 dígitos se formatean sin alterar el dato guardado.
+export function formatNumeroFactura(value?: string | null, puntoVenta?: string | null): string {
+  if (!value) return '';
+  const v = String(value).trim();
+  if (FACTURA_REGEX.test(v)) return v;
+  const d = toDigitsOnly(v);
+  if (d.length === 13 && d === v) return maskNumeroFactura(d);
+  if (puntoVenta && /^\d{3}-\d{3}$/.test(puntoVenta) && /^\d{1,7}$/.test(v)) {
+    return `${puntoVenta}-${v.padStart(7, '0')}`;
+  }
+  return v;
+}
+
+// ============================================================
+// Código de barras EAN-13 (estándar GS1, imprimible/compatible con lectores)
+// Prefijo 200-299 reservado por GS1 para uso interno/restringido.
+// ============================================================
+export function ean13CheckDigit(first12: string): number {
+  let sum = 0;
+  for (let i = 0; i < 12; i++) sum += Number(first12[i]) * (i % 2 === 0 ? 1 : 3);
+  return (10 - (sum % 10)) % 10;
+}
+
+export function esEan13Valido(code: string): boolean {
+  return /^\d{13}$/.test(code) && ean13CheckDigit(code.slice(0, 12)) === Number(code[12]);
+}
+
+export function generarEan13(): string {
+  const arr = new Uint32Array(2);
+  crypto.getRandomValues(arr);
+  const body = '20' + String((arr[0] * 4294967296 + arr[1]) % 10000000000).padStart(10, '0');
+  return body + ean13CheckDigit(body);
+}
+
+// Patrones EAN-13 para dibujar el código en SVG
+const EAN_L = ['0001101','0011001','0010011','0111101','0100011','0110001','0101111','0111011','0110111','0001011'];
+const EAN_G = ['0100111','0110011','0011011','0100001','0011101','0111001','0000101','0010001','0001001','0010111'];
+const EAN_R = ['1110010','1100110','1101100','1000010','1011100','1001110','1010000','1000100','1001000','1110100'];
+const EAN_PARITY = ['LLLLLL','LLGLGG','LLGGLG','LLGGGL','LGLLGG','LGGLLG','LGGGLL','LGLGLG','LGLGGL','LGGLGL'];
+
+export function ean13Bits(code: string): string | null {
+  if (!esEan13Valido(code)) return null;
+  const parity = EAN_PARITY[Number(code[0])];
+  let bits = '101';
+  for (let i = 0; i < 6; i++) {
+    const d = Number(code[i + 1]);
+    bits += parity[i] === 'L' ? EAN_L[d] : EAN_G[d];
+  }
+  bits += '01010';
+  for (let i = 7; i < 13; i++) bits += EAN_R[Number(code[i])];
+  return bits + '101';
+}
+
+// SVG (string) del código de barras para vista/impresión. null si no es EAN-13 válido.
+export function ean13Svg(code: string, height = 60): string | null {
+  const bits = ean13Bits(code);
+  if (!bits) return null;
+  const w = 2;
+  const margin = 10 * w;
+  const total = bits.length * w + margin * 2;
+  let rects = '';
+  for (let i = 0; i < bits.length; i++) {
+    if (bits[i] === '1') rects += `<rect x="${margin + i * w}" y="0" width="${w}" height="${height}" fill="#000"/>`;
+  }
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${total}" height="${height + 16}" viewBox="0 0 ${total} ${height + 16}"><rect width="100%" height="100%" fill="#fff"/>${rects}<text x="${total / 2}" y="${height + 13}" font-family="monospace" font-size="12" text-anchor="middle">${code}</text></svg>`;
+}
+
+// Estado de una deuda por factura
+export function estadoDeuda(total: number, pagado: number, fechaVencimiento?: string | null): 'pagada' | 'parcial' | 'vencida' | 'pendiente' {
+  const saldo = Math.round(total) - Math.round(pagado);
+  if (saldo <= 0) return 'pagada';
+  const vencida = !!fechaVencimiento && diasHastaVencimiento(fechaVencimiento) < 0;
+  if (vencida) return 'vencida';
+  return pagado > 0 ? 'parcial' : 'pendiente';
+}
+
+export function escapeHtml(value: unknown): string {
+  return String(value ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
+}
+
+export function formatMonto(amount: number, moneda: 'GS' | 'USD' | string = 'GS'): string {
+  if (moneda === 'USD') {
+    return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount);
+  }
+  return formatCurrency(amount);
+}

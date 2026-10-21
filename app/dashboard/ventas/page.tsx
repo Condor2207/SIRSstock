@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, formatDateTime, estadoBadgeClass } from '@/lib/utils';
+import { formatCurrency, formatDateTime, estadoBadgeClass, formatNumeroFactura } from '@/lib/utils';
 import { Plus, Search, Eye, Trash2, X, Loader2, ShoppingCart } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
@@ -67,11 +67,13 @@ export default function VentasPage() {
     if (!ventaAnulando || !motivoAnulacion.trim()) return;
     const { data: ventaData } = await supabase
       .from('ventas')
-      .select('*, venta_items(producto_id, lote_id, cantidad), clientes(saldo_pendiente)')
+      .select('*, venta_items(*, productos(*)), clientes(saldo_pendiente)')
       .eq('id', ventaAnulando)
       .single();
     if (ventaData) {
-      const { porProducto, porLote } = agruparItemsStock((ventaData.venta_items || []) as Array<{ producto_id: string; lote_id?: string | null; cantidad: number }>);
+      // Los servicios no descuentan stock, por lo tanto tampoco lo restituyen
+      const itemsStock = ((ventaData.venta_items || []) as any[]).filter(i => !i.es_servicio && !i.productos?.es_servicio);
+      const { porProducto, porLote } = agruparItemsStock(itemsStock as Array<{ producto_id: string; lote_id?: string | null; cantidad: number }>);
       for (const [productoId, cantidad] of Object.entries(porProducto) as Array<[string, number]>) {
         const { data: prod } = await supabase.from('productos').select('stock_actual').eq('id', productoId).single();
         if (prod) await supabase.from('productos').update({ stock_actual: prod.stock_actual + cantidad }).eq('id', productoId);
@@ -80,7 +82,7 @@ export default function VentasPage() {
         const { data: lote } = await supabase.from('lotes').select('stock_actual').eq('id', loteId).single();
         if (lote) await supabase.from('lotes').update({ stock_actual: lote.stock_actual + cantidad }).eq('id', loteId);
       }
-      for (const item of (ventaData.venta_items || [])) {
+      for (const item of itemsStock) {
         await supabase.from('movimientos_stock').insert({
           producto_id: item.producto_id, lote_id: item.lote_id || null,
           tipo: 'devolucion', cantidad: item.cantidad,
@@ -275,7 +277,8 @@ export default function VentasPage() {
               <div className="grid grid-cols-2 gap-4 text-sm">
                 <div><span className="text-gray-500">Cliente:</span> <strong>{(detalle as any).clientes?.nombre}</strong></div>
                 <div><span className="text-gray-500">Condición:</span> <span className={`badge ml-1 ${estadoBadgeClass(detalle.condicion_pago)}`}>{detalle.condicion_pago}</span></div>
-                {detalle.numero_factura && <div><span className="text-gray-500">Factura:</span> <strong>{detalle.numero_factura}</strong></div>}
+                {detalle.numero_factura && <div><span className="text-gray-500">Factura:</span> <strong>{formatNumeroFactura(detalle.numero_factura)}</strong></div>}
+                {(detalle as any).leyenda && <div className="col-span-2"><span className="text-gray-500">Leyenda:</span> <strong>{(detalle as any).leyenda}</strong></div>}
                 {detalle.condicion_pago === 'credito' && <div><span className="text-gray-500">Cuotas:</span> <strong>{detalle.cantidad_cuotas}</strong></div>}
               </div>
 
@@ -294,7 +297,11 @@ export default function VentasPage() {
                   <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
                     {detalle.venta_items?.map(item => (
                       <tr key={item.id}>
-                        <td className="table-cell">{item.descripcion}</td>
+                        <td className="table-cell">
+                          {item.descripcion}
+                          {(item as any).es_servicio && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">Servicio</span>}
+                          {(item as any).descripcion_producto && <div className="text-xs text-gray-500">{(item as any).descripcion_producto}</div>}
+                        </td>
                         <td className="table-cell font-mono text-xs">{item.numero_lote || '-'}</td>
                         <td className="table-cell">{item.cantidad}</td>
                         <td className="table-cell">{formatCurrency(item.precio_unitario)}</td>

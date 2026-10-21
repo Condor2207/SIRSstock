@@ -4,8 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, getDeleteErrorMessage, getErrorMessage, isSchemaCacheMissing, toInteger, toIntegerInput } from '@/lib/utils';
-import { Plus, Search, Edit2, Trash2, X, Loader2, Package, ToggleLeft, ToggleRight } from 'lucide-react';
+import { ean13Svg, escapeHtml, esEan13Valido, generarEan13, formatCurrency, getDeleteErrorMessage, getErrorMessage, isSchemaCacheMissing, toInteger, toIntegerInput } from '@/lib/utils';
+import { Plus, Search, Edit2, Trash2, X, Loader2, Package, ToggleLeft, ToggleRight, Copy, Printer, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SearchSelect } from '@/components/SearchSelect';
 import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
@@ -43,14 +43,14 @@ export default function ProductosPage() {
     stock_minimo: '', control_lote: false,
     clasificacion_id: '', codigo_barras: '',
     marca_id: '', linea_id: '', grupo_id: '',
-    tasa_iva_id: '', es_exportacion: false,
+    tasa_iva_id: '', es_exportacion: false, es_servicio: false,
     plazo_vencimiento_meses: '36', porcentaje_comision: '0',
   });
 
   const loadData = useCallback(async () => {
     setLoading(true);
     const [prodRes, catRes, clasRes, tivaRes, marcaRes, lineaRes, grupoRes, unidRes, listaRes, marcaLineasRes, marcaGruposRes] = await Promise.all([
-      supabase.from('productos').select('*, categoria:categorias(nombre), clasificacion:clasificaciones(nombre), tasa_iva_ref:tasas_iva(nombre,porcentaje)').order('nombre'),
+      supabase.from('productos').select('*, categoria:categorias(nombre), clasificacion:clasificaciones(nombre), tasa_iva_ref:tasas_iva(nombre,porcentaje), producto_precios(lista_precios_id)').order('nombre'),
       supabase.from('categorias').select('*').order('nombre'),
       supabase.from('clasificaciones').select('*').eq('activo', true).order('nombre'),
       supabase.from('tasas_iva').select('*').eq('activo', true).order('porcentaje'),
@@ -87,7 +87,7 @@ export default function ProductosPage() {
       stock_minimo: String(toInteger(p.stock_minimo || 0, 0)), control_lote: p.control_lote,
       clasificacion_id: (p as any).clasificacion_id || '', codigo_barras: (p as any).codigo_barras || '',
       marca_id: (p as any).marca_id || '', linea_id: (p as any).linea_id || '', grupo_id: (p as any).grupo_id || '',
-      tasa_iva_id: (p as any).tasa_iva_id || '', es_exportacion: (p as any).es_exportacion || false,
+      tasa_iva_id: (p as any).tasa_iva_id || '', es_exportacion: (p as any).es_exportacion || false, es_servicio: (p as any).es_servicio || false,
       plazo_vencimiento_meses: String(toInteger((p as any).plazo_vencimiento_meses ?? 36, 36)),
       porcentaje_comision: String(toInteger((p as any).porcentaje_comision ?? 0, 0)),
     });
@@ -111,7 +111,7 @@ export default function ProductosPage() {
 
   function openNew() {
     setEditando(null);
-    setForm({ sku: '', nombre: '', descripcion: '', categoria_id: '', unidad_medida: unidades[0]?.nombre || 'Unidad', precio_venta: '', precio_compra: '', stock_minimo: '0', control_lote: false, clasificacion_id: '', codigo_barras: '', marca_id: '', linea_id: '', grupo_id: '', tasa_iva_id: '', es_exportacion: false, plazo_vencimiento_meses: '36', porcentaje_comision: '0' });
+    setForm({ sku: '', nombre: '', descripcion: '', categoria_id: '', unidad_medida: unidades[0]?.nombre || 'Unidad', precio_venta: '', precio_compra: '', stock_minimo: '0', control_lote: false, clasificacion_id: '', codigo_barras: '', marca_id: '', linea_id: '', grupo_id: '', tasa_iva_id: '', es_exportacion: false, es_servicio: false, plazo_vencimiento_meses: '36', porcentaje_comision: '0' });
     setPreciosPorLista({});
     setFormExport({ nombre_en: '', descripcion_en: '', unidad_medida_en: '', precio_usd: '', codigo_barras_en: '', notas_en: '' });
     setTabModal('general');
@@ -143,6 +143,22 @@ export default function ProductosPage() {
       const { data: skuCheck } = await skuQuery.maybeSingle();
       if (skuCheck) { toast.error(`Ya existe otro producto con el SKU "${skuVal}"`); return; }
     }
+    // Código de barras: no se sobrescribe si ya existe; si está vacío al crear, se genera uno único.
+    let barras = form.codigo_barras.trim();
+    if (!barras && !editando) {
+      for (let i = 0; i < 10 && !barras; i++) {
+        const candidato = generarEan13();
+        const { data: dup } = await supabase.from('productos').select('id').eq('codigo_barras', candidato).maybeSingle();
+        if (!dup) barras = candidato;
+      }
+      if (!barras) { toast.error('No se pudo generar un código de barras único. Reintentá.'); return; }
+    }
+    if (barras) {
+      let q = supabase.from('productos').select('id').eq('codigo_barras', barras);
+      if (editando) q = q.neq('id', editando.id);
+      const { data: dupB } = await q.maybeSingle();
+      if (dupB) { toast.error(`Ya existe otro producto con el código de barras "${barras}"`); return; }
+    }
     setSaving(true);
     const payloadBase: any = {
       sku: skuVal, nombre: form.nombre,
@@ -156,7 +172,8 @@ export default function ProductosPage() {
     };
     const payloadExtra: any = {
       clasificacion_id: form.clasificacion_id || null,
-      codigo_barras: form.codigo_barras || null,
+      codigo_barras: barras || null,
+      es_servicio: form.es_servicio,
       marca_id: form.marca_id || null,
       linea_id: form.linea_id || null,
       grupo_id: form.grupo_id || null,
@@ -167,7 +184,7 @@ export default function ProductosPage() {
     };
     try {
       const payload = { ...payloadBase, ...payloadExtra };
-      const retryRefs = ['clasificacion_id', 'codigo_barras', 'marca_id', 'linea_id', 'grupo_id', 'tasa_iva_id', 'es_exportacion', 'plazo_vencimiento_meses', 'porcentaje_comision'];
+      const retryRefs = ['clasificacion_id', 'codigo_barras', 'marca_id', 'linea_id', 'grupo_id', 'tasa_iva_id', 'es_exportacion', 'es_servicio', 'plazo_vencimiento_meses', 'porcentaje_comision'];
       let productoId = editando?.id;
       let auditAction: 'crear' | 'editar' = editando ? 'editar' : 'crear';
       if (editando) {
@@ -191,6 +208,7 @@ export default function ProductosPage() {
         toast.success('Producto creado');
       }
       for (const [lista_precios_id, precioStr] of Object.entries(preciosPorLista)) {
+        if (!String(precioStr).trim()) continue;
         const precio = toInteger(precioStr, 0);
         await supabase.from('producto_precios').upsert({ producto_id: productoId, lista_precios_id, precio }, { onConflict: 'producto_id,lista_precios_id' });
       }
@@ -215,6 +233,23 @@ export default function ProductosPage() {
     } finally {
       setSaving(false);
     }
+  }
+
+  async function copiarCodigo(code?: string | null) {
+    if (!code) return;
+    try { await navigator.clipboard.writeText(code); toast.success('Código copiado'); }
+    catch { toast.error('No se pudo copiar el código'); }
+  }
+
+  function imprimirCodigo(code?: string | null, nombre?: string) {
+    if (!code) return;
+    const svg = ean13Svg(code);
+    const body = svg || `<div style="font-family:monospace;font-size:20px">${escapeHtml(code)}</div>`;
+    const w = window.open('', '_blank', 'width=400,height=300');
+    if (!w) return;
+    w.document.write(`<!DOCTYPE html><html><head><meta charset="UTF-8"><title>Código de barras</title></head><body style="text-align:center;font-family:Arial;padding:16px"><div style="font-size:12px;margin-bottom:6px">${escapeHtml(nombre || '')}</div>${body}</body></html>`);
+    w.document.close(); w.focus();
+    setTimeout(() => w.print(), 300);
   }
 
   async function handleDelete(p: Producto) {
@@ -299,13 +334,18 @@ export default function ProductosPage() {
                     <tr key={p.id} className={`hover:bg-gray-50 dark:hover:bg-gray-800/50 ${!p.activo ? 'opacity-60' : ''}`}>
                       <td className="table-cell text-xs text-gray-400 font-mono">{(p as any).codigo_interno || '—'}</td>
                       <td className="table-cell font-mono text-xs font-semibold text-blue-600">{p.sku}</td>
-                      <td className="table-cell font-medium">{p.nombre}</td>
+                      <td className="table-cell font-medium">{p.nombre}{(p as any).es_servicio && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">Servicio</span>}</td>
                       <td className="table-cell text-gray-500 text-xs">{(p as any).clasificacion?.nombre || '—'}</td>
                       <td className="table-cell text-xs">{p.unidad_medida}</td>
-                      <td className="table-cell font-semibold">{formatCurrency(p.precio_venta)}</td>
+                      <td className="table-cell font-semibold">
+                        {formatCurrency(p.precio_venta)}
+                        {((p as any).producto_precios?.length || 0) > 0 && (
+                          <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-blue-100 text-blue-700" title="Listas de precios asignadas">{(p as any).producto_precios.length} lista{(p as any).producto_precios.length > 1 ? 's' : ''}</span>
+                        )}
+                      </td>
                       <td className="table-cell">
                         <span className={p.stock_actual <= p.stock_minimo ? 'text-red-500 font-bold' : 'text-emerald-600 font-semibold'}>
-                          {p.stock_actual}
+                          {(p as any).es_servicio ? '—' : p.stock_actual}
                         </span>
                       </td>
                       <td className="table-cell">
@@ -371,8 +411,18 @@ export default function ProductosPage() {
                       <input className="input uppercase" value={form.sku} onChange={e => setForm(f => ({ ...f, sku: e.target.value.toUpperCase() }))} placeholder="Ej: EDU-001 (o dejar vacío)" />
                     </div>
                     <div>
-                      <label className="label">Código de barras</label>
-                      <input className="input" value={form.codigo_barras} onChange={e => setForm(f => ({ ...f, codigo_barras: e.target.value }))} placeholder="7890000000000" />
+                      <label className="label">Código de barras <span className="text-gray-400 font-normal">(EAN-13, se genera si está vacío)</span></label>
+                      <div className="flex gap-1">
+                        <input className="input font-mono" value={form.codigo_barras} onChange={e => setForm(f => ({ ...f, codigo_barras: e.target.value }))} placeholder="Se generará automáticamente" />
+                        {!form.codigo_barras && (
+                          <button type="button" title="Generar código" onClick={() => setForm(f => ({ ...f, codigo_barras: generarEan13() }))} className="p-2 rounded border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-blue-600"><RefreshCw className="w-4 h-4" /></button>
+                        )}
+                        <button type="button" title="Copiar" disabled={!form.codigo_barras} onClick={() => copiarCodigo(form.codigo_barras)} className="p-2 rounded border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-blue-600 disabled:opacity-40"><Copy className="w-4 h-4" /></button>
+                        <button type="button" title="Imprimir" disabled={!form.codigo_barras} onClick={() => imprimirCodigo(form.codigo_barras, form.nombre)} className="p-2 rounded border border-gray-200 dark:border-gray-700 text-gray-500 hover:text-blue-600 disabled:opacity-40"><Printer className="w-4 h-4" /></button>
+                      </div>
+                      {form.codigo_barras && esEan13Valido(form.codigo_barras) && (
+                        <div className="mt-2" dangerouslySetInnerHTML={{ __html: ean13Svg(form.codigo_barras, 40) || '' }} />
+                      )}
                     </div>
                   </div>
                   <div>
@@ -487,6 +537,10 @@ export default function ProductosPage() {
                       <span className="text-sm text-gray-700 dark:text-gray-300">Control por lote/vencimiento</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={form.es_servicio} onChange={e => setForm(f => ({ ...f, es_servicio: e.target.checked }))} className="w-4 h-4 accent-blue-600" />
+                      <span className="text-sm text-gray-700 dark:text-gray-300">Es servicio (no descuenta stock)</span>
+                    </label>
+                    <label className="flex items-center gap-2 cursor-pointer">
                       <input type="checkbox" checked={form.es_exportacion} onChange={e => setForm(f => ({ ...f, es_exportacion: e.target.checked }))} className="w-4 h-4 accent-blue-600" />
                       <span className="text-sm text-gray-700 dark:text-gray-300">Es exportación</span>
                     </label>
@@ -531,6 +585,19 @@ export default function ProductosPage() {
               {tabModal === 'precios' && (
                 <div className="space-y-3">
                   <p className="text-sm text-gray-500 dark:text-gray-400">Ingresá el precio por lista. Si está vacío, se usa el precio de venta general.</p>
+                  {(() => {
+                    const asignadas = listas.filter(l => String(preciosPorLista[l.id] || '').trim() !== '');
+                    return (
+                      <div className={`text-sm rounded-lg p-3 ${asignadas.length > 1 ? 'bg-blue-50 dark:bg-blue-900/20 text-blue-700 dark:text-blue-300' : 'bg-gray-50 dark:bg-gray-800/50 text-gray-600 dark:text-gray-400'}`}>
+                        <strong>{asignadas.length}</strong> lista{asignadas.length === 1 ? '' : 's'} de precio asignada{asignadas.length === 1 ? '' : 's'}
+                        {asignadas.length > 0 && (
+                          <ul className="mt-1 text-xs space-y-0.5">
+                            {asignadas.map(l => <li key={l.id}>• {l.nombre}: <strong>{formatCurrency(toInteger(preciosPorLista[l.id], 0))}</strong></li>)}
+                          </ul>
+                        )}
+                      </div>
+                    );
+                  })()}
                   <div className="space-y-2">
                     {listas.map(lista => (
                       <div key={lista.id} className="flex items-center gap-3">

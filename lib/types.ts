@@ -38,6 +38,7 @@ export interface Producto {
   clasificacion_id?: string;
   clasificacion?: Clasificacion;
   codigo_barras?: string;
+  es_servicio?: boolean;
   codigo_interno?: number;
   marca_id?: string;
   marca?: Marca;
@@ -300,6 +301,10 @@ export interface NuevaVentaItem {
   subtotal: number;
   lotes_disponibles?: Lote[];
   tasa_iva_porcentaje?: number;
+  es_servicio?: boolean;
+  descripcion_producto?: string;
+  sin_precio_lista?: boolean;
+  precio_manual?: boolean;
 }
 
 // ============================================================

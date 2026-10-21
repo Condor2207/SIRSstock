@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, formatDate, estadoBadgeClass, getErrorMessage, isSchemaCacheMissing, toDigitsOnly, toInteger, toIntegerInput } from '@/lib/utils';
+import { formatMonto, maskNumeroFactura, esNumeroFacturaValido, formatCurrency, formatDate, estadoBadgeClass, getErrorMessage, isSchemaCacheMissing, toDigitsOnly, toInteger, toIntegerInput } from '@/lib/utils';
 import { Plus, Search, Receipt, X, Loader2, Edit2, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Gasto, Proveedor, TasaIva } from '@/lib/types';
@@ -13,7 +13,7 @@ import { usePagination, Pagination, useSort, SortableTh } from '@/components/Tab
 const CATEGORIAS_BASE = ['Servicios', 'Combustible', 'Reparaciones', 'Insumos de oficina', 'Alquiler', 'Transporte', 'Marketing', 'Personal', 'Impuestos', 'Otros'];
 const MEDIOS_PAGO = ['efectivo', 'transferencia', 'cheque', 'tarjeta', 'otro'];
 const CREAR_CATEGORIA = '__INTERNAL_CREATE_CATEGORY__';
-const GASTOS_SELECT_ADVANCED = 'id, titulo, descripcion, proveedor_id, monto, fecha, medio_pago, categoria, referencia, created_by, created_at, condicion, fecha_vencimiento, numero_transaccion, banco_id, numero_cheque, fecha_cheque, tasa_iva_id, saldo_pendiente, estado, proveedores(nombre), tasa_iva_ref:tasas_iva(nombre, porcentaje)';
+const GASTOS_SELECT_ADVANCED = 'id, titulo, descripcion, proveedor_id, monto, fecha, medio_pago, categoria, referencia, created_by, created_at, condicion, fecha_vencimiento, numero_transaccion, banco_id, numero_cheque, fecha_cheque, tasa_iva_id, saldo_pendiente, estado, moneda, tipo_cambio, proveedores(nombre), tasa_iva_ref:tasas_iva(nombre, porcentaje)';
 const GASTOS_SELECT_BASE = 'id, titulo, descripcion, proveedor_id, monto, fecha, medio_pago, categoria, referencia, created_by, created_at, proveedores(nombre)';
 
 interface Banco { id: string; nombre: string; }
@@ -40,7 +40,7 @@ export default function GastosPage() {
     medio_pago: 'efectivo', categoria: '', referencia: '',
     condicion: 'debito' as 'debito' | 'credito', fecha_vencimiento: '',
     numero_transaccion: '', banco_id: '', numero_cheque: '', fecha_cheque: '',
-    tasa_iva_id: '',
+    tasa_iva_id: '', moneda: 'GS' as 'GS' | 'USD', tipo_cambio: '',
   });
 
   const load = useCallback(async () => {
@@ -100,7 +100,7 @@ export default function GastosPage() {
       medio_pago: 'efectivo', categoria: '', referencia: '',
       condicion: 'debito', fecha_vencimiento: '',
       numero_transaccion: '', banco_id: '', numero_cheque: '', fecha_cheque: '',
-      tasa_iva_id: '',
+      tasa_iva_id: '', moneda: 'GS', tipo_cambio: '',
     });
   }
 
@@ -124,6 +124,8 @@ export default function GastosPage() {
       numero_cheque: (g as any).numero_cheque || '',
       fecha_cheque: (g as any).fecha_cheque || '',
       tasa_iva_id: g.tasa_iva_id || '',
+      moneda: ((g as any).moneda === 'USD' ? 'USD' : 'GS') as 'GS' | 'USD',
+      tipo_cambio: (g as any).tipo_cambio ? String(toInteger((g as any).tipo_cambio, 0)) : '',
     });
     setShowModal(true);
   }
@@ -146,6 +148,11 @@ export default function GastosPage() {
     const proveedorId = form.proveedor_id.trim();
     if (!proveedorId) { toast.error('Por favor seleccione un proveedor'); return; }
     const monto = toInteger(form.monto, 0);
+    const refTrim = form.referencia.trim();
+    if (/^[\d-]+$/.test(refTrim) && refTrim.replace(/\D/g, '').length === 13 && !esNumeroFacturaValido(maskNumeroFactura(refTrim))) {
+      toast.error('El número de factura debe tener el formato 001-001-1234567'); return;
+    }
+    if (form.moneda === 'USD' && form.tipo_cambio && toInteger(form.tipo_cambio, 0) <= 0) { toast.error('El tipo de cambio debe ser mayor a 0'); return; }
     if (isNaN(monto) || monto <= 0) { toast.error('El monto debe ser mayor a 0'); return; }
     if (schemaCompatMode && form.condicion === 'credito') {
       toast.error('No se pueden registrar gastos a crédito porque faltan columnas en la base de datos. Por favor ejecute las migraciones 009, 010 y 011.');
@@ -176,7 +183,7 @@ export default function GastosPage() {
         fecha: form.fecha,
         medio_pago: form.condicion === 'credito' ? 'otro' : form.medio_pago,
         categoria: form.categoria,
-        referencia: form.referencia || null,
+        referencia: (/^[\d-]+$/.test(refTrim) && refTrim.replace(/\D/g, '').length === 13 ? maskNumeroFactura(refTrim) : refTrim) || null,
       };
       if (!schemaCompatMode) {
         Object.assign(payload, {
@@ -187,6 +194,8 @@ export default function GastosPage() {
           numero_cheque: form.medio_pago === 'cheque' ? (toDigitsOnly(form.numero_cheque) || null) : null,
           fecha_cheque: form.medio_pago === 'cheque' ? (form.fecha_cheque || null) : null,
           tasa_iva_id: form.tasa_iva_id || null,
+          moneda: form.moneda,
+          tipo_cambio: form.moneda === 'USD' && form.tipo_cambio ? toInteger(form.tipo_cambio, 0) : null,
           saldo_pendiente: saldoPendiente,
           estado,
         });
@@ -228,7 +237,8 @@ export default function GastosPage() {
   const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filteredRaw as any[]);
   const { paginated: filtered, page, setPage, pageSize, setPageSize, totalPages, total } = usePagination(filteredSorted);
 
-  const totalFiltrado = filtered.reduce((s, g) => s + g.monto, 0);
+  const totalFiltrado = filtered.reduce((s, g) => ((g as any).moneda === 'USD' ? s : s + g.monto), 0);
+  const totalFiltradoUsd = filtered.reduce((s, g) => ((g as any).moneda === 'USD' ? s + g.monto : s), 0);
 
   return (
     <>
@@ -249,7 +259,7 @@ export default function GastosPage() {
           <div className="flex items-center gap-3">
             {filtered.length > 0 && (
               <div className="text-sm text-gray-600 dark:text-gray-400">
-                Total: <span className="font-bold text-red-500">{formatCurrency(totalFiltrado)}</span>
+                Total: <span className="font-bold text-red-500">{formatCurrency(totalFiltrado)}{totalFiltradoUsd > 0 && <> + {formatMonto(totalFiltradoUsd, 'USD')}</>}</span>
               </div>
             )}
             <button onClick={() => { resetForm(); setShowModal(true); }} className="btn-primary flex items-center gap-2">
@@ -297,7 +307,7 @@ export default function GastosPage() {
                           <span className={`badge ${estadoBadgeClass(g.estado || 'pagado')}`}>{g.estado || 'pagado'}</span>
                         </td>
                       )}
-                      <td className="table-cell font-bold text-red-500">{formatCurrency(g.monto)}</td>
+                      <td className="table-cell font-bold text-red-500">{formatMonto(g.monto, (g as any).moneda || 'GS')} <span className="text-[10px] text-gray-400 font-normal">{(g as any).moneda || 'GS'}</span></td>
                       <td className="table-cell text-right">
                         <button onClick={() => openEdit(g)} className="p-1 text-blue-500 hover:text-blue-700" title="Editar gasto">
                           <Edit2 className="w-4 h-4" />
@@ -312,7 +322,7 @@ export default function GastosPage() {
                 <tfoot>
                   <tr className="bg-gray-50 dark:bg-gray-800/50">
                     <td colSpan={schemaCompatMode ? 3 : 6} className="px-4 py-3 text-right text-sm font-semibold text-gray-600 dark:text-gray-400">Total:</td>
-                    <td className="px-4 py-3 font-bold text-red-500 text-base">{formatCurrency(totalFiltrado)}</td>
+                    <td className="px-4 py-3 font-bold text-red-500 text-base">{formatCurrency(totalFiltrado)}{totalFiltradoUsd > 0 && <div>{formatMonto(totalFiltradoUsd, 'USD')}</div>}</td>
                     <td></td>
                   </tr>
                 </tfoot>
@@ -363,9 +373,22 @@ export default function GastosPage() {
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="label">Monto ($) *</label>
+                  <label className="label">Monto ({form.moneda === 'USD' ? 'USD' : 'Gs.'}) *</label>
                   <input type="number" min="1" step="1" inputMode="numeric" className="input" value={form.monto} onChange={e => setForm(f => ({ ...f, monto: toIntegerInput(e.target.value) }))} />
                 </div>
+                <div>
+                  <label className="label">Moneda</label>
+                  <select className="input" value={form.moneda} disabled={schemaCompatMode} onChange={e => setForm(f => ({ ...f, moneda: e.target.value as 'GS' | 'USD' }))}>
+                    <option value="GS">Guaraníes (GS)</option>
+                    <option value="USD">Dólares (USD)</option>
+                  </select>
+                </div>
+                {form.moneda === 'USD' && (
+                  <div>
+                    <label className="label">Tipo de cambio (opcional)</label>
+                    <input type="number" min="0" step="1" inputMode="numeric" className="input" placeholder="Gs. por USD" value={form.tipo_cambio} onChange={e => setForm(f => ({ ...f, tipo_cambio: toIntegerInput(e.target.value) }))} />
+                  </div>
+                )}
                 <div>
                   <label className="label">Fecha</label>
                   <input type="date" className="input" value={form.fecha} onChange={e => setForm(f => ({ ...f, fecha: e.target.value }))} />

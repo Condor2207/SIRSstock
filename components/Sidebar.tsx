@@ -9,7 +9,7 @@ import {
   CreditCard, Receipt, Factory, BarChart3, Leaf, ChevronLeft,
   ChevronRight, FileSpreadsheet, Settings2, BadgePercent,
   ScrollText,
-  Handshake, X,
+  Handshake, X, Landmark,
 } from 'lucide-react';
 import { useState } from 'react';
 
@@ -29,6 +29,7 @@ const navSections: NavSection[] = [
     items: [
       { href: '/dashboard/ventas', icon: ShoppingCart, label: 'Ventas' },
       { href: '/dashboard/cobros', icon: Handshake, label: 'Cobros' },
+      { href: '/dashboard/cheques', icon: Landmark, label: 'Cheques diferidos' },
       { href: '/dashboard/clientes', icon: Users, label: 'Clientes' },
       { href: '/dashboard/proveedores', icon: Truck, label: 'Proveedores' },
       { href: '/dashboard/compras', icon: CreditCard, label: 'Compras' },
