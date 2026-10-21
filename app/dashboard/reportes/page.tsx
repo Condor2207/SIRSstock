@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
-import { formatCurrency, formatDate, formatNumber, diasHastaVencimiento, estadoVencimiento, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
+import { estadoBadgeClass, estadoDeuda, formatNumeroFactura, formatMonto, formatCurrency, formatDate, formatNumber, diasHastaVencimiento, estadoVencimiento, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line } from 'recharts';
 import { Download, BarChart2, Package, Users, AlertTriangle, Loader2, CreditCard, BadgePercent, Receipt, FileText, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -58,12 +58,44 @@ export default function ReportesPage() {
           .order('stock_actual');
         setStockData(data || []);
       } else if (tab === 'cobrar') {
-        const { data } = await supabase
-          .from('clientes')
-          .select('nombre, documento, telefono, limite_credito, saldo_pendiente')
-          .gt('saldo_pendiente', 0)
-          .order('saldo_pendiente', { ascending: false });
-        setCobrarData(data || []);
+        // Una fila por factura (deuda asociada a la factura)
+        const { data, error } = await supabase
+          .from('ventas')
+          .select('id, numero, numero_factura, fecha, total, saldo_pendiente, estado, condicion_pago, clientes(nombre, documento), venta_cuotas(fecha_vencimiento, monto, monto_pagado, estado)')
+          .neq('estado', 'anulado')
+          .or(`saldo_pendiente.gt.0,and(condicion_pago.eq.credito,fecha.gte.${desde},fecha.lte.${hasta}T23:59:59)`)
+          .order('fecha', { ascending: false });
+        if (error) throw error;
+        // Cheques diferidos vigentes (pendiente/depositado) por factura; opcional si falta la migración 019
+        const chequesPorVenta: Record<string, number> = {};
+        const { data: chq, error: chqErr } = await supabase
+          .from('cheque_diferido_ventas')
+          .select('venta_id, monto_aplicado, cheques_diferidos(estado)');
+        if (!chqErr) {
+          for (const r of (chq || []) as any[]) {
+            if (['pendiente', 'depositado'].includes(r.cheques_diferidos?.estado)) {
+              chequesPorVenta[r.venta_id] = (chequesPorVenta[r.venta_id] || 0) + Number(r.monto_aplicado || 0);
+            }
+          }
+        }
+        setCobrarData((data || []).map((v: any) => {
+          const total = Math.round(Number(v.total) || 0);
+          const saldo = Math.max(0, Math.round(Number(v.saldo_pendiente) || 0));
+          const pagado = Math.max(0, total - saldo);
+          const pendientes = (v.venta_cuotas || []).filter((c: any) => c.estado !== 'pagado').map((c: any) => c.fecha_vencimiento).filter(Boolean).sort();
+          const vencimiento = pendientes[0] || null;
+          return {
+            venta_id: v.id,
+            cliente: v.clientes?.nombre || '',
+            documento: v.clientes?.documento || '',
+            fecha: v.fecha,
+            numero_factura: v.numero_factura ? formatNumeroFactura(v.numero_factura) : `(Op. ${v.numero})`,
+            total, pagado, saldo,
+            fecha_vencimiento: vencimiento,
+            cheques_diferidos: chequesPorVenta[v.id] || 0,
+            estado: estadoDeuda(total, pagado, vencimiento),
+          };
+        }));
       } else if (tab === 'vencimientos') {
         const { data } = await supabase
           .from('lotes')
@@ -96,9 +128,16 @@ export default function ReportesPage() {
       } else if (tab === 'gastos_credito') {
         const { data, error } = await supabase
           .from('gastos')
-          .select('titulo, fecha, monto, fecha_vencimiento, categoria, proveedores(nombre)')
+          .select('titulo, fecha, monto, moneda, fecha_vencimiento, categoria, proveedores(nombre)')
           .eq('condicion', 'credito')
           .order('fecha_vencimiento', { ascending: true });
+        if (error && isSchemaCacheMissing(error, ['moneda'])) {
+          const legacy = await supabase.from('gastos')
+            .select('titulo, fecha, monto, fecha_vencimiento, categoria, proveedores(nombre)')
+            .eq('condicion', 'credito').order('fecha_vencimiento', { ascending: true });
+          setGastosCreditoData((legacy.data || []) as any[]);
+          return;
+        }
         if (error) {
           if (isSchemaCacheMissing(error, ['gastos', 'condicion', 'fecha_vencimiento'])) {
             setGastosCreditoData([]);
@@ -132,11 +171,18 @@ export default function ReportesPage() {
         // Gastos a crédito pendientes
         let gastosRows: any[] = [];
         try {
-          const { data: gastosData, error: gastosError } = await supabase
+          let { data: gastosData, error: gastosError } = (await supabase
             .from('gastos')
-            .select('titulo, fecha, monto, saldo_pendiente, fecha_vencimiento, categoria, proveedores(nombre)')
+            .select('titulo, fecha, monto, moneda, saldo_pendiente, fecha_vencimiento, categoria, proveedores(nombre)')
             .eq('condicion', 'credito')
-            .order('fecha_vencimiento', { ascending: true });
+            .order('fecha_vencimiento', { ascending: true })) as { data: any[] | null; error: any };
+          if (gastosError && isSchemaCacheMissing(gastosError, ['moneda'])) {
+            ({ data: gastosData, error: gastosError } = await supabase
+              .from('gastos')
+              .select('titulo, fecha, monto, saldo_pendiente, fecha_vencimiento, categoria, proveedores(nombre)')
+              .eq('condicion', 'credito')
+              .order('fecha_vencimiento', { ascending: true }));
+          }
           if (!gastosError) {
             gastosRows = (gastosData || []).map((g: any) => ({
               origen: 'Gasto' as const,
@@ -144,6 +190,7 @@ export default function ReportesPage() {
               proveedor: g.proveedores?.nombre || '—',
               fecha: g.fecha,
               monto: g.monto,
+              moneda: g.moneda || 'GS',
               saldo_pendiente: g.saldo_pendiente ?? g.monto,
               fecha_vencimiento: g.fecha_vencimiento || null,
               categoria: g.categoria || 'Gasto',
@@ -181,7 +228,18 @@ export default function ReportesPage() {
     } else if (tab === 'cobrar') {
       filename = 'cuentas_cobrar';
       sheetName = 'Cuentas a cobrar';
-      data = cobrarData.map(c => ({ Cliente: c.nombre, Documento: c.documento || '', Teléfono: c.telefono || '', 'Límite crédito': c.limite_credito, 'Saldo pendiente': c.saldo_pendiente }));
+      data = cobrarData.map(c => ({
+        Cliente: c.cliente,
+        'Documento / RUC / CI': c.documento || '',
+        'Fecha de emisión': c.fecha ? String(c.fecha).slice(0, 10) : '',
+        'Número de factura': c.numero_factura,
+        'Monto total': c.total,
+        'Monto pagado': c.pagado,
+        'Saldo pendiente': c.saldo,
+        'Fecha de vencimiento': c.fecha_vencimiento || '',
+        Estado: c.estado,
+        'Cheques diferidos pendientes': c.cheques_diferidos,
+      }));
     } else if (tab === 'pagar') {
       filename = 'cuentas_pagar';
       sheetName = 'Cuentas a pagar';
@@ -193,7 +251,7 @@ export default function ReportesPage() {
     } else if (tab === 'gastos_credito') {
       filename = 'gastos_credito';
       sheetName = 'Gastos a pagar';
-      data = gastosCreditoData.map(g => ({ Gasto: g.titulo, Proveedor: g.proveedores?.nombre || '', Fecha: g.fecha, Monto: g.monto, Vencimiento: g.fecha_vencimiento || '' }));
+      data = gastosCreditoData.map(g => ({ Gasto: g.titulo, Proveedor: g.proveedores?.nombre || '', Fecha: g.fecha, Moneda: g.moneda || 'GS', Monto: g.monto, Vencimiento: g.fecha_vencimiento || '' }));
     } else if (tab === 'vencimientos') {
       filename = 'lotes_vencimiento';
       sheetName = 'Vencimientos';
@@ -201,7 +259,7 @@ export default function ReportesPage() {
     } else if (tab === 'gastos_unificados') {
       filename = 'gastos_unificados';
       sheetName = 'Gastos Unificados';
-      data = gastosUnificadosData.map(r => ({ Origen: r.origen, Concepto: r.titulo, Proveedor: r.proveedor, Categoría: r.categoria, Fecha: r.fecha, Monto: r.monto, 'Saldo pendiente': r.saldo_pendiente, Vencimiento: r.fecha_vencimiento || '' }));
+      data = gastosUnificadosData.map(r => ({ Origen: r.origen, Concepto: r.titulo, Proveedor: r.proveedor, Categoría: r.categoria, Fecha: r.fecha, Moneda: r.moneda || 'GS', Monto: r.monto, 'Saldo pendiente': r.saldo_pendiente, Vencimiento: r.fecha_vencimiento || '' }));
     }
 
     if (data.length === 0) { toast.error('Sin datos para exportar'); return; }
@@ -223,7 +281,7 @@ export default function ReportesPage() {
 
   const totalVentas = ventasData.reduce((s, v) => s + v.total, 0);
   const totalCantVentas = ventasData.reduce((s, v) => s + v.qty, 0);
-  const totalCobrar = cobrarData.reduce((s, c) => s + c.saldo_pendiente, 0);
+  const totalCobrar = cobrarData.reduce((s, c) => s + c.saldo, 0);
   const stockBajo = stockData.filter(p => p.stock_actual <= p.stock_minimo);
   const lotesUrgentes = vencimientosData.filter(l => {
     const dias = diasHastaVencimiento(l.fecha_vencimiento);
@@ -258,7 +316,7 @@ export default function ReportesPage() {
 
         {/* Filtros de fecha */}
         <div className="flex flex-wrap items-center gap-3 justify-between">
-          {(tab === 'ventas') && (
+          {(tab === 'ventas' || tab === 'cobrar') && (
             <div className="flex items-center gap-2 text-sm">
               <label className="text-gray-500">Desde</label>
               <input type="date" className="input py-1.5 w-36" value={desde} onChange={e => setDesde(e.target.value)} />
@@ -381,33 +439,32 @@ export default function ReportesPage() {
                         <tr>
                           <th className="table-header">Cliente</th>
                           <th className="table-header">Documento</th>
-                          <th className="table-header">Teléfono</th>
-                          <th className="table-header">Límite crédito</th>
-                          <th className="table-header">Saldo pendiente</th>
-                          <th className="table-header">% usado</th>
+                          <th className="table-header">Emisión</th>
+                          <th className="table-header">N° factura</th>
+                          <th className="table-header">Total</th>
+                          <th className="table-header">Pagado</th>
+                          <th className="table-header">Saldo</th>
+                          <th className="table-header">Vencimiento</th>
+                          <th className="table-header">Estado</th>
                         </tr>
                       </thead>
                       <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                        {cobrarData.map((c, i) => {
-                          const pct = c.limite_credito > 0 ? (c.saldo_pendiente / c.limite_credito) * 100 : 100;
-                          return (
-                            <tr key={i}>
-                              <td className="table-cell font-medium">{c.nombre}</td>
-                              <td className="table-cell text-xs text-gray-500">{c.documento || '-'}</td>
-                              <td className="table-cell text-sm">{c.telefono || '-'}</td>
-                              <td className="table-cell">{formatCurrency(c.limite_credito)}</td>
-                              <td className="table-cell font-bold text-red-500">{formatCurrency(c.saldo_pendiente)}</td>
-                              <td className="table-cell">
-                                <div className="flex items-center gap-2">
-                                  <div className="flex-1 h-2 bg-gray-200 rounded-full">
-                                    <div className={`h-2 rounded-full ${pct >= 90 ? 'bg-red-500' : pct >= 70 ? 'bg-amber-500' : 'bg-emerald-500'}`} style={{ width: `${Math.min(100, pct)}%` }} />
-                                  </div>
-                                  <span className="text-xs font-semibold w-12 text-right">{pct.toFixed(0)}%</span>
-                                </div>
-                              </td>
-                            </tr>
-                          );
-                        })}
+                        {cobrarData.map((c) => (
+                          <tr key={c.venta_id}>
+                            <td className="table-cell font-medium">{c.cliente}</td>
+                            <td className="table-cell text-xs text-gray-500">{c.documento || '-'}</td>
+                            <td className="table-cell text-sm">{formatDate(c.fecha)}</td>
+                            <td className="table-cell font-mono text-xs">{c.numero_factura}</td>
+                            <td className="table-cell">{formatCurrency(c.total)}</td>
+                            <td className="table-cell text-emerald-600">{formatCurrency(c.pagado)}</td>
+                            <td className="table-cell font-bold text-red-500">
+                              {formatCurrency(c.saldo)}
+                              {c.cheques_diferidos > 0 && <div className="text-[10px] text-amber-600 font-normal">Cheques dif.: {formatCurrency(c.cheques_diferidos)}</div>}
+                            </td>
+                            <td className="table-cell text-sm">{c.fecha_vencimiento ? formatDate(c.fecha_vencimiento) : '-'}</td>
+                            <td className="table-cell"><span className={`badge ${estadoBadgeClass(c.estado === 'pagada' ? 'pagado' : c.estado)}`}>{c.estado}</span></td>
+                          </tr>
+                        ))}
                       </tbody>
                     </table>
                   </div>
@@ -527,7 +584,7 @@ export default function ReportesPage() {
                                 <td className="table-cell font-medium">{g.titulo}</td>
                                 <td className="table-cell text-sm">{g.proveedores?.nombre || '—'}</td>
                                 <td className="table-cell text-xs">{formatDate(g.fecha)}</td>
-                                <td className="table-cell font-bold text-red-500">{formatCurrency(g.monto)}</td>
+                                <td className="table-cell font-bold text-red-500">{formatMonto(g.monto, g.moneda || 'GS')} <span className="text-[10px] text-gray-400">{g.moneda || 'GS'}</span></td>
                                 <td className="table-cell text-xs">{g.fecha_vencimiento ? formatDate(g.fecha_vencimiento) : '—'}</td>
                                 <td className="table-cell">
                                   {typeof dias === 'number' ? (
@@ -640,8 +697,8 @@ export default function ReportesPage() {
                                 <td className="table-cell text-sm text-gray-500">{r.proveedor}</td>
                                 <td className="table-cell text-xs text-gray-400">{r.categoria}</td>
                                 <td className="table-cell text-xs">{formatDate(r.fecha)}</td>
-                                <td className="table-cell font-semibold">{formatCurrency(r.monto)}</td>
-                                <td className="table-cell font-bold text-red-500">{formatCurrency(r.saldo_pendiente ?? r.monto)}</td>
+                                <td className="table-cell font-semibold">{formatMonto(r.monto, r.moneda || 'GS')} <span className="text-[10px] text-gray-400">{r.moneda || 'GS'}</span></td>
+                                <td className="table-cell font-bold text-red-500">{formatMonto(r.saldo_pendiente ?? r.monto, r.moneda || 'GS')}</td>
                                 <td className="table-cell text-xs">{r.fecha_vencimiento ? formatDate(r.fecha_vencimiento) : '—'}</td>
                                 <td className="table-cell">
                                   {typeof dias === 'number' ? (

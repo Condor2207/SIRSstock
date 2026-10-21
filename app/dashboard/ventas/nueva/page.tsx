@@ -5,16 +5,16 @@ import { useRouter } from 'next/navigation';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, calcularCuotas, formatDate, toDigitsOnly, toInteger } from '@/lib/utils';
+import { formatCurrency, calcularCuotas, formatDate, toDigitsOnly, toInteger, esNumeroFacturaValido, maskNumeroFactura, escapeHtml, isSchemaCacheMissing } from '@/lib/utils';
 import { Plus, Trash2, ShoppingCart, Loader2, ArrowLeft, Search, Printer, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
 import { SearchSelect } from '@/components/SearchSelect';
 import type { PostgrestError } from '@supabase/supabase-js';
-import type { Cliente, Producto, Lote, NuevaVentaItem, EmpresaConfig } from '@/lib/types';
+import type { Cliente, Producto, Lote, NuevaVentaItem, EmpresaConfig, ListaPrecios } from '@/lib/types';
 
 // Columns added in later migrations (003, 009) that may be absent in older deployed schemas
-const OPTIONAL_VENTA_COLUMNS = ['tasa_iva', 'timbrado', 'nota_remision', 'fecha_vencimiento_factura', 'motivo_anulacion'];
+const OPTIONAL_VENTA_COLUMNS = ['tasa_iva', 'timbrado', 'nota_remision', 'fecha_vencimiento_factura', 'motivo_anulacion', 'leyenda'];
 
 function getMissingVentasColumn(error: PostgrestError | null): string | null {
   if (!error) return null;
@@ -41,11 +41,13 @@ export default function NuevaVentaPage() {
   const [plazoDias, setPlazoDias] = useState(30);
   const [cantidadCuotas, setCantidadCuotas] = useState(1);
   const [numeroFactura, setNumeroFactura] = useState('');
-  const [puntoVenta, setPuntoVenta] = useState('');
   const [notas, setNotas] = useState('');
   const [timbrado, setTimbrado] = useState('');
   const [tasaIva, setTasaIva] = useState<10 | 5 | 0>(10);
   const [notaRemision, setNotaRemision] = useState('');
+  const [leyenda, setLeyenda] = useState('');
+  const [listas, setListas] = useState<ListaPrecios[]>([]);
+  const [listaId, setListaId] = useState('');
   const [empresaConfig, setEmpresaConfig] = useState<EmpresaConfig | null>(null);
   const [ventaConfirmada, setVentaConfirmada] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
@@ -58,18 +60,20 @@ export default function NuevaVentaPage() {
   }, []);
 
   async function loadData() {
-    const [clientesRes, productosRes, empresaRes] = await Promise.all([
+    const [clientesRes, productosRes, empresaRes, listasRes] = await Promise.all([
       supabase.from('clientes').select('*, lista_precios_id, vendedor_id').eq('activo', true).order('nombre'),
       supabase.from('productos')
         .select('*, lotes(id, numero_lote, fecha_vencimiento, stock_actual), clasificaciones(aparece_en_factura), tasa_iva_ref:tasas_iva(porcentaje), producto_precios(*)')
         .eq('activo', true)
-        .gt('stock_actual', 0)
         .order('nombre'),
       supabase.from('empresa_config').select('*').eq('id', 1).single(),
+      supabase.from('listas_precios').select('*').eq('activo', true).order('nombre'),
     ]);
+    setListas((listasRes.data || []) as ListaPrecios[]);
     setClientes(clientesRes.data as Cliente[] || []);
     const prods = ((productosRes.data || []) as Producto[]).filter(p => {
       const clas = (p as any).clasificaciones;
+      if (!(p as any).es_servicio && !(p.stock_actual > 0)) return false;
       return !clas || clas.aparece_en_factura !== false;
     });
     // Ordenar lotes FEFO
@@ -93,6 +97,32 @@ export default function NuevaVentaPage() {
     setClienteId(id);
     const cli = clientes.find(c => c.id === id) || null;
     setClienteSeleccionado(cli);
+    const nuevaLista = (cli as any)?.lista_precios_id || '';
+    setListaId(nuevaLista);
+    repreciarItems(nuevaLista);
+  }
+
+  function precioDeLista(producto: Producto, lista: string): { precio: number; sinPrecio: boolean } {
+    if (!lista) return { precio: toInteger(producto.precio_venta, 0), sinPrecio: false };
+    const pp = (producto as any).producto_precios?.find((x: any) => x.lista_precios_id === lista);
+    if (pp && pp.precio != null) return { precio: toInteger(pp.precio, 0), sinPrecio: false };
+    return { precio: toInteger(producto.precio_venta, 0), sinPrecio: true };
+  }
+
+  // Recalcula precios según la lista, conservando cantidades y precios manuales
+  function repreciarItems(lista: string) {
+    setItems(prev => prev.map(item => {
+      if (item.precio_manual) return item;
+      const prod = productos.find(p => p.id === item.producto_id);
+      if (!prod) return item;
+      const { precio, sinPrecio } = precioDeLista(prod, lista);
+      return { ...item, precio_unitario: precio, subtotal: item.cantidad * precio, sin_precio_lista: !!lista && sinPrecio };
+    }));
+  }
+
+  function handleListaChange(id: string) {
+    setListaId(id);
+    repreciarItems(id);
   }
 
   function buscarProductos(term: string) {
@@ -110,13 +140,10 @@ export default function NuevaVentaPage() {
   }
 
   function agregarProducto(producto: Producto) {
-    const loteFefo = producto.lotes?.[0];
+    const loteFefo = (producto as any).es_servicio ? undefined : producto.lotes?.[0];
     // Precio: si el cliente tiene lista, buscar en producto_precios
-    const listaId = (clienteSeleccionado as any)?.lista_precios_id;
-    const precioLista = listaId
-      ? (producto as any).producto_precios?.find((pp: any) => pp.lista_precios_id === listaId)?.precio
-      : null;
-    const precioBase = toInteger(precioLista ?? producto.precio_venta, 0);
+    const { precio: precioBase, sinPrecio } = precioDeLista(producto, listaId);
+    const esServicio = !!(producto as any).es_servicio;
     const taxaPct = toInteger((producto as any).tasa_iva_ref?.porcentaje ?? 10, 10);
     const nuevo: NuevaVentaItem = {
       producto_id: producto.id,
@@ -127,8 +154,12 @@ export default function NuevaVentaPage() {
       cantidad: 1,
       precio_unitario: precioBase,
       subtotal: precioBase,
-      lotes_disponibles: producto.lotes,
+      lotes_disponibles: esServicio ? [] : producto.lotes,
       tasa_iva_porcentaje: taxaPct,
+      es_servicio: esServicio,
+      descripcion_producto: producto.descripcion || '',
+      sin_precio_lista: !!listaId && sinPrecio,
+      precio_manual: false,
     };
     setItems(prev => [...prev, nuevo]);
     setBuscarProducto('');
@@ -144,6 +175,15 @@ export default function NuevaVentaPage() {
         const lote = item.lotes_disponibles?.find(l => l.id === valor);
         item.numero_lote = lote?.numero_lote;
         item.fecha_vencimiento = lote?.fecha_vencimiento;
+      }
+      if (campo === 'precio_unitario') {
+        item.precio_unitario = Math.max(0, toInteger(valor, 0));
+        item.precio_manual = true;
+        item.sin_precio_lista = false;
+        item.subtotal = item.cantidad * item.precio_unitario;
+      }
+      if (campo === 'tasa_iva_porcentaje') {
+        item.tasa_iva_porcentaje = Number(valor);
       }
       if (campo === 'cantidad') {
         item.cantidad = Math.max(1, toInteger(item.cantidad, 1));
@@ -161,6 +201,11 @@ export default function NuevaVentaPage() {
 
   const subtotalBruto = items.reduce((s, i) => s + (i.subtotal || 0), 0);
   const total = subtotalBruto;
+  // Precios con IVA incluido: se discrimina el IVA de cada ítem según su tasa
+  const ivaDe = (i: NuevaVentaItem, tasa: number) => (i.tasa_iva_porcentaje ?? 10) === tasa && tasa > 0 ? Math.round(i.subtotal - i.subtotal / (1 + tasa / 100)) : 0;
+  const iva10 = items.reduce((s, i) => s + ivaDe(i, 10), 0);
+  const iva5 = items.reduce((s, i) => s + ivaDe(i, 5), 0);
+  const itemsSinPrecioLista = items.filter(i => i.sin_precio_lista);
   const cuotasPreview = condicionPago === 'credito' && cantidadCuotas > 0 && total > 0
     ? calcularCuotas(total, cantidadCuotas, plazoDias)
     : [];
@@ -170,11 +215,12 @@ export default function NuevaVentaPage() {
     : 0;
 
   async function confirmarVenta() {
-    const numeroFacturaDigits = toDigitsOnly(numeroFactura);
-    const puntoVentaDigits = toDigitsOnly(puntoVenta);
+    const numeroFacturaFmt = numeroFactura.trim();
+    const puntoVentaFmt = numeroFacturaFmt ? numeroFacturaFmt.slice(0, 7) : '';
     const timbradoDigits = toDigitsOnly(timbrado);
     const notaRemisionDigits = toDigitsOnly(notaRemision);
     if (!clienteId) { toast.error('Seleccioná un cliente'); return; }
+    if (numeroFactura && !esNumeroFacturaValido(numeroFactura)) { toast.error('El número de factura debe tener el formato 001-001-1234567'); return; }
     if (items.length === 0) { toast.error('Agregá al menos un producto'); return; }
     if (condicionPago === 'credito' && total > creditoDisponible && creditoDisponible > 0) {
       toast('⚠️ El cliente supera su límite de crédito. Disponible: ' + formatCurrency(creditoDisponible), { icon: '⚠️', style: { background: '#fef9c3', color: '#854d0e' } });
@@ -183,6 +229,7 @@ export default function NuevaVentaPage() {
     // Validar stock
     for (const item of items) {
       const prod = productos.find(p => p.id === item.producto_id);
+      if (item.es_servicio) continue;
       if (prod && item.cantidad > prod.stock_actual) {
         toast.error(`Stock insuficiente para ${prod.nombre}. Disponible: ${prod.stock_actual}`);
         return;
@@ -215,8 +262,9 @@ export default function NuevaVentaPage() {
         total,
         saldo_pendiente: condicionPago === 'credito' ? total : 0,
         estado: condicionPago === 'contado' ? 'pagado' : 'pendiente',
-        numero_factura: numeroFacturaDigits || null,
-        punto_venta: puntoVentaDigits || null,
+        numero_factura: numeroFacturaFmt || null,
+        punto_venta: puntoVentaFmt || null,
+        leyenda: leyenda.trim() || null,
         timbrado: timbradoDigits || null,
         nota_remision: notaRemisionDigits || null,
         notas: notas || null,
@@ -250,8 +298,15 @@ export default function NuevaVentaPage() {
         precio_unitario: item.precio_unitario,
         subtotal: item.subtotal,
         tasa_iva_porcentaje: (item as any).tasa_iva_porcentaje ?? 10,
+        es_servicio: !!item.es_servicio,
+        descripcion_producto: item.descripcion_producto || null,
       }));
-      await supabase.from('venta_items').insert(ventaItemsData);
+      let { error: itemsErr } = await supabase.from('venta_items').insert(ventaItemsData);
+      if (itemsErr && isSchemaCacheMissing(itemsErr, ['es_servicio', 'descripcion_producto', 'tasa_iva_porcentaje'])) {
+        const legacy = ventaItemsData.map(({ es_servicio: _s, descripcion_producto: _d, ...rest }) => rest);
+        ({ error: itemsErr } = await supabase.from('venta_items').insert(legacy));
+      }
+      if (itemsErr) throw itemsErr;
 
       // Comisiones si cliente tiene vendedor y productos con comisión
       const vendedorId = (clienteSeleccionado as any)?.vendedor_id;
@@ -291,6 +346,7 @@ export default function NuevaVentaPage() {
 
       // Actualizar stock por producto y lote
       for (const item of items) {
+        if (item.es_servicio) continue; // Los servicios no descuentan stock
         // Producto
         const prod = productos.find(p => p.id === item.producto_id);
         if (prod) {
@@ -345,11 +401,12 @@ export default function NuevaVentaPage() {
     setPlazoDias(30);
     setCantidadCuotas(1);
     setNumeroFactura('');
-    setPuntoVenta('');
     setTimbrado(empresaConfig?.timbrado || '');
     setTasaIva(10);
     setNotaRemision('');
     setNotas('');
+    setLeyenda('');
+    setListaId('');
     setVentaConfirmada(null);
     setBuscarProducto('');
     setProductosFiltrados([]);
@@ -362,7 +419,10 @@ export default function NuevaVentaPage() {
 
     const itemsHtml = items.map(item =>
       '<tr>' +
-      '<td style="padding:6px 8px;border-bottom:1px solid #eee">' + item.producto_nombre + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #eee">' + escapeHtml(item.producto_nombre) +
+      (item.es_servicio ? ' <span style="font-size:9px;border:1px solid #6366f1;color:#4338ca;padding:0 4px;border-radius:3px">SERVICIO</span>' : '') +
+      (item.descripcion_producto ? '<div style="font-size:10px;color:#555">' + escapeHtml(item.descripcion_producto) + '</div>' : '') + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">' + (item.tasa_iva_porcentaje === 0 ? 'Exento' : (item.tasa_iva_porcentaje ?? 10) + '%') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">' + item.cantidad + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">' + formatCurrency(item.precio_unitario) + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:bold">' + formatCurrency(item.subtotal) + '</td>' +
@@ -372,12 +432,15 @@ export default function NuevaVentaPage() {
     let html: string;
 
     if (tieneFactura) {
-      const nroFactura = (puntoVenta || '001') + '-' + numeroFactura;
+      const nroFactura = numeroFactura;
       const clienteNombre = clienteSeleccionado?.nombre || '—';
       const clienteDoc = clienteSeleccionado?.documento || '—';
       const condStr = condicionPago === 'contado' ? 'Contado' : 'Crédito (' + plazoDias + ' días)';
+      const leyendaHtml = leyenda
+        ? '<div style="margin-bottom:12px;padding:8px 12px;border:1px solid #333;font-weight:bold;text-align:center">' + escapeHtml(leyenda) + '</div>'
+        : '';
       const notasHtml = notas
-        ? '<div style="margin-top:15px;font-size:11px;color:#555;border-top:1px dashed #ccc;padding-top:8px"><strong>Observaciones:</strong> ' + notas + '</div>'
+        ? '<div style="margin-top:15px;font-size:11px;color:#555;border-top:1px dashed #ccc;padding-top:8px"><strong>Observaciones:</strong> ' + escapeHtml(notas) + '</div>'
         : '';
 
       html =
@@ -399,23 +462,27 @@ export default function NuevaVentaPage() {
         '<div style="font-weight:bold">' + ventaNum + '</div></div>' +
         '<div style="border:2px solid #000;padding:12px 20px;text-align:center">' +
         '<div style="font-size:14px;font-weight:bold;letter-spacing:2px">FACTURA</div>' +
-        '<div style="font-size:18px;font-weight:bold;margin:5px 0">' + nroFactura + '</div>' +
+        '<div style="font-size:18px;font-weight:bold;margin:5px 0">' + escapeHtml(nroFactura) + '</div>' +
         '<div style="font-size:10px">Timbrado N°: <strong>' + (timbrado || '——') + '</strong></div>' +
         '</div></div>' +
         '<div style="background:#f9f9f9;border:1px solid #ddd;padding:10px 15px;margin-bottom:15px">' +
         '<table style="width:100%">' +
-        '<tr><td style="font-weight:bold;width:120px;padding:3px 6px">Cliente:</td><td style="padding:3px 6px">' + clienteNombre + '</td></tr>' +
-        '<tr><td style="font-weight:bold;padding:3px 6px">RUC/CI:</td><td style="padding:3px 6px">' + clienteDoc + '</td></tr>' +
+        '<tr><td style="font-weight:bold;width:120px;padding:3px 6px">Cliente:</td><td style="padding:3px 6px">' + escapeHtml(clienteNombre) + '</td></tr>' +
+        '<tr><td style="font-weight:bold;padding:3px 6px">RUC/CI:</td><td style="padding:3px 6px">' + escapeHtml(clienteDoc) + '</td></tr>' +
         '<tr><td style="font-weight:bold;padding:3px 6px">Condición:</td><td style="padding:3px 6px">' + condStr + '</td></tr>' +
         '</table></div>' +
+        leyendaHtml +
         '<table class="items"><thead><tr>' +
         '<th>Descripción</th>' +
+        '<th style="width:60px;text-align:center">IVA</th>' +
         '<th style="width:70px;text-align:center">Cant.</th>' +
         '<th style="width:130px;text-align:right">P. Unitario</th>' +
         '<th style="width:140px;text-align:right">Subtotal</th>' +
         '</tr></thead><tbody>' + itemsHtml + '</tbody></table>' +
         '<div style="text-align:right;margin-top:10px"><table style="margin-left:auto">' +
         '<tr><td style="padding:3px 8px">Subtotal:</td><td style="padding:3px 8px;text-align:right;min-width:140px">' + formatCurrency(subtotalBruto) + '</td></tr>' +
+        '<tr><td style="padding:3px 8px;font-size:11px">IVA 10%:</td><td style="padding:3px 8px;text-align:right;font-size:11px">' + formatCurrency(iva10) + '</td></tr>' +
+        '<tr><td style="padding:3px 8px;font-size:11px">IVA 5%:</td><td style="padding:3px 8px;text-align:right;font-size:11px">' + formatCurrency(iva5) + '</td></tr>' +
         '<tr><td style="padding:6px 8px;font-size:15px;font-weight:bold;border-top:2px solid #000">TOTAL:</td>' +
         '<td style="padding:6px 8px;text-align:right;font-size:15px;font-weight:bold;border-top:2px solid #000">' + formatCurrency(total) + '</td></tr>' +
         '</table></div>' +
@@ -425,11 +492,11 @@ export default function NuevaVentaPage() {
 
     } else {
       const clienteHtml = clienteSeleccionado
-        ? '<div style="display:flex;justify-content:space-between;margin:2px 0"><span>Cliente:</span><span>' + clienteSeleccionado.nombre + '</span></div>'
+        ? '<div style="display:flex;justify-content:space-between;margin:2px 0"><span>Cliente:</span><span>' + escapeHtml(clienteSeleccionado.nombre) + '</span></div>'
         : '<div style="text-align:center;font-size:10px">Consumidor final</div>';
       const ticketItems = items.map(item =>
         '<div style="margin:4px 0">' +
-        '<div style="font-weight:bold;font-size:11px">' + (item.producto_nombre.split(' - ').slice(1).join(' - ') || item.producto_nombre) + '</div>' +
+        '<div style="font-weight:bold;font-size:11px">' + escapeHtml(item.producto_nombre.split(' - ').slice(1).join(' - ') || item.producto_nombre) + (item.es_servicio ? ' [SERVICIO]' : '') + '</div>' +
         '<div style="display:flex;justify-content:space-between;font-size:11px">' +
         '<span>' + item.cantidad + ' x ' + formatCurrency(item.precio_unitario) + '</span>' +
         '<span style="font-weight:bold">' + formatCurrency(item.subtotal) + '</span>' +
@@ -449,6 +516,7 @@ export default function NuevaVentaPage() {
         '<div style="text-align:center;font-weight:bold">TICKET DE VENTA</div>' +
         '<div style="text-align:center;font-size:10px">' + ventaNum + '</div>' +
         '<div style="text-align:center;font-size:10px">' + fecha + ' ' + hora + '</div>' +
+        (leyenda ? '<div style="text-align:center;font-size:11px;font-weight:bold">' + escapeHtml(leyenda) + '</div>' : '') +
         '<div class="line"></div>' +
         clienteHtml +
         '<div class="line"></div>' +
@@ -532,6 +600,21 @@ export default function NuevaVentaPage() {
                 onChange={handleClienteChange}
                 placeholder="Seleccionar cliente..."
               />
+              <div className="mt-3">
+                <label className="label">Lista de precios</label>
+                <select className="input" value={listaId} onChange={e => handleListaChange(e.target.value)}>
+                  <option value="">Precio general del producto</option>
+                  {listas.map(l => <option key={l.id} value={l.id}>{l.nombre}</option>)}
+                </select>
+                {clienteSeleccionado && (clienteSeleccionado as any).lista_precios_id && (clienteSeleccionado as any).lista_precios_id === listaId && (
+                  <p className="text-xs text-gray-400 mt-1">Lista asignada al cliente.</p>
+                )}
+                {itemsSinPrecioLista.length > 0 && (
+                  <p className="text-xs text-amber-600 mt-1">
+                    ⚠️ {itemsSinPrecioLista.length} ítem(s) sin precio en esta lista: {itemsSinPrecioLista.map(i => i.producto_nombre).join(', ')}.
+                  </p>
+                )}
+              </div>
               {clienteSeleccionado && (
                 <div className="mt-3 space-y-2">
                   <div className="flex items-center gap-2 text-sm">
@@ -582,20 +665,26 @@ export default function NuevaVentaPage() {
                     onKeyDown={e => e.key === 'Escape' && setMostrarBuscador(false)}
                   />
                   {productosFiltrados.length > 0 && (
-                    <div className="absolute z-10 top-full left-0 right-0 mt-1 card shadow-lg overflow-hidden">
+                    <div className="absolute z-10 top-full left-0 right-0 mt-1 card shadow-lg overflow-y-auto max-h-80">
                       {productosFiltrados.map(p => (
                         <button
                           key={p.id}
                           onClick={() => agregarProducto(p)}
                           className="w-full text-left px-4 py-2.5 hover:bg-gray-50 dark:hover:bg-gray-700 flex justify-between items-center text-sm border-b border-gray-100 dark:border-gray-700 last:border-0"
                         >
-                          <div>
-                            <span className="font-mono text-xs text-blue-600 mr-2">{p.sku}</span>
-                            <span className="font-medium">{p.nombre}</span>
+                          <div className="min-w-0 flex-1 pr-3" title={`${p.sku} - ${p.nombre}${p.descripcion ? '\n' + p.descripcion : ''}`}>
+                            <div className="flex items-center gap-2 min-w-0">
+                              <span className="font-mono text-xs text-blue-600 shrink-0">{p.sku}</span>
+                              <span className="font-medium truncate">{p.nombre}</span>
+                              {(p as any).es_servicio && <span className="text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700 shrink-0">Servicio</span>}
+                            </div>
+                            {p.descripcion && <div className="text-xs text-gray-400 truncate">{p.descripcion}</div>}
                           </div>
-                          <div className="text-right">
-                            <div className="font-semibold text-emerald-600">{formatCurrency(p.precio_venta)}</div>
-                            <div className="text-xs text-gray-400">Stock: {p.stock_actual}</div>
+                          <div className="text-right shrink-0 whitespace-nowrap">
+                            <div className="font-semibold text-emerald-600">{formatCurrency(precioDeLista(p, listaId).precio)}</div>
+                            <div className="text-xs text-gray-400">
+                              {(p as any).es_servicio ? 'Servicio' : `Stock: ${p.stock_actual}`} · IVA {toInteger((p as any).tasa_iva_ref?.porcentaje ?? 10, 10)}%
+                            </div>
                           </div>
                         </button>
                       ))}
@@ -614,12 +703,18 @@ export default function NuevaVentaPage() {
                   {items.map((item, idx) => (
                     <div key={idx} className="p-3 bg-gray-50 dark:bg-gray-800/50 rounded-lg border border-gray-200 dark:border-gray-700">
                       <div className="flex items-start justify-between gap-2 mb-2">
-                        <p className="text-sm font-medium">{item.producto_nombre}</p>
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium break-words">
+                            {item.producto_nombre}
+                            {item.es_servicio && <span className="ml-2 text-[10px] px-1.5 py-0.5 rounded bg-indigo-100 text-indigo-700">Servicio</span>}
+                          </p>
+                          {item.descripcion_producto && <p className="text-xs text-gray-500 break-words">{item.descripcion_producto}</p>}
+                        </div>
                         <button onClick={() => eliminarItem(idx)} className="text-red-400 hover:text-red-600 p-0.5">
                           <Trash2 className="w-4 h-4" />
                         </button>
                       </div>
-                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-sm">
+                      <div className="grid grid-cols-2 sm:grid-cols-5 gap-2 text-sm">
                         <div>
                           <label className="label text-xs">Cantidad</label>
                           <input
@@ -631,9 +726,20 @@ export default function NuevaVentaPage() {
                         </div>
                         <div>
                           <label className="label text-xs">Precio unitario</label>
-                          <div className="input py-1.5 bg-gray-100 dark:bg-gray-700 font-medium">
-                            {formatCurrency(item.precio_unitario)}
-                          </div>
+                          <input
+                            type="number" min="0" step="1"
+                            className={`input py-1.5 ${item.sin_precio_lista ? 'border-amber-400' : ''}`}
+                            value={item.precio_unitario}
+                            onChange={e => actualizarItem(idx, 'precio_unitario', e.target.value)}
+                          />
+                        </div>
+                        <div>
+                          <label className="label text-xs">IVA</label>
+                          <select className="input py-1.5" value={item.tasa_iva_porcentaje ?? 10} onChange={e => actualizarItem(idx, 'tasa_iva_porcentaje', e.target.value)}>
+                            <option value={10}>10%</option>
+                            <option value={5}>5%</option>
+                            <option value={0}>Exento</option>
+                          </select>
                         </div>
                         {item.lotes_disponibles && item.lotes_disponibles.length > 0 && (
                           <div>
@@ -661,6 +767,11 @@ export default function NuevaVentaPage() {
                           </div>
                         </div>
                       </div>
+                      {item.sin_precio_lista && (
+                        <p className="text-xs text-amber-600 mt-1">
+                          ⚠️ Este producto no tiene precio en la lista seleccionada (se usa el precio general). Elegí otra lista o cargá un precio manual.
+                        </p>
+                      )}
                       {item.numero_lote && (
                         <p className="text-xs text-blue-600 mt-1">
                           Lote: <strong>{item.numero_lote}</strong>
@@ -679,11 +790,8 @@ export default function NuevaVentaPage() {
               <div className="grid grid-cols-2 gap-4">
                 <div>
                   <label className="label">Número de factura</label>
-                  <input className="input" placeholder="000100001234" value={numeroFactura} onChange={e => setNumeroFactura(toDigitsOnly(e.target.value))} />
-                </div>
-                <div>
-                  <label className="label">Punto de venta</label>
-                  <input className="input" placeholder="0001" value={puntoVenta} onChange={e => setPuntoVenta(toDigitsOnly(e.target.value))} />
+                  <input className={`input ${numeroFactura && !esNumeroFacturaValido(numeroFactura) ? 'border-red-400' : ''}`} placeholder="001-001-1234567" maxLength={15} value={numeroFactura} onChange={e => setNumeroFactura(maskNumeroFactura(e.target.value))} />
+                  {numeroFactura && !esNumeroFacturaValido(numeroFactura) && <p className="text-xs text-red-500 mt-1">Formato requerido: 001-001-1234567</p>}
                 </div>
                 <div>
                   <label className="label">N° de timbrado</label>
@@ -693,6 +801,11 @@ export default function NuevaVentaPage() {
                   <label className="label">Nota de remisión</label>
                   <input className="input" placeholder="000100000001" value={notaRemision} onChange={e => setNotaRemision(toDigitsOnly(e.target.value))} />
                 </div>
+              </div>
+              <div className="mt-3">
+                <label className="label">Leyenda / concepto de la factura</label>
+                <input className="input" maxLength={200} value={leyenda} onChange={e => setLeyenda(e.target.value)} placeholder="Ej: Factura por servicio técnico, Venta de mercadería, Entrega a cuenta" />
+                <p className="text-xs text-gray-400 mt-1">Se muestra en la impresión y se guarda con la venta. Editable antes de emitir.</p>
               </div>
               <div className="mt-3">
                 <label className="label">Observaciones</label>
@@ -756,6 +869,10 @@ export default function NuevaVentaPage() {
                 <div className="flex justify-between text-sm">
                   <span className="text-gray-500">Subtotal</span>
                   <span>{formatCurrency(subtotalBruto)}</span>
+                </div>
+                <div className="flex justify-between text-xs text-gray-500">
+                  <span>IVA 10% / 5% incluido</span>
+                  <span>{formatCurrency(iva10)} / {formatCurrency(iva5)}</span>
                 </div>
                 <div className="flex justify-between font-bold text-lg border-t border-gray-200 dark:border-gray-600 pt-2">
                   <span>TOTAL</span>

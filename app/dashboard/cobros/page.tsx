@@ -14,7 +14,7 @@ import type { Cliente, Banco, Venta, Gasto, Proveedor } from '@/lib/types';
 interface CobroFacturaRow { venta_id: string; numero: string; total: number; saldo_pendiente: number; fecha: string; monto_aplicado: number; }
 interface CobroGastoRow { gasto_id: string; categoria: string; monto: number; saldo_pendiente: number; fecha: string; monto_aplicado: number; }
 interface CobroRetencionRow { numero_retencion: string; concepto: string; monto: number; }
-interface CobroMedioRow { tipo: string; monto: number; banco_id: string; numero_cheque: string; fecha_cheque: string; numero_transaccion: string; }
+interface CobroMedioRow { tipo: string; monto: number; banco_id: string; numero_cheque: string; fecha_cheque: string; numero_transaccion: string; moneda?: 'GS' | 'USD'; tipo_cambio?: number; }
 // Diferencia máxima aceptada en unidades monetarias para conciliación entre documentos y medios de pago.
 const RECON_TOLERANCE = 1;
 
@@ -172,7 +172,9 @@ export default function CobrosPage() {
     ? facturasSelec.reduce((s, f) => s + f.monto_aplicado, 0)
     : gastosSelec.reduce((s, g) => s + g.monto_aplicado, 0);
   const totalRetenciones = retenciones.reduce((s, r) => s + r.monto, 0);
-  const totalCobrado = medios.reduce((s, m) => s + m.monto, 0);
+  // Monto en Gs.: los medios en USD se convierten con el tipo de cambio cargado manualmente
+  const montoGs = (m: CobroMedioRow) => (m.moneda === 'USD' ? Math.round(m.monto * (m.tipo_cambio || 0)) : m.monto);
+  const totalCobrado = medios.reduce((s, m) => s + montoGs(m), 0);
   const diferencia = totalDocumentos - totalRetenciones - totalCobrado;
 
   function openNew() {
@@ -192,6 +194,14 @@ export default function CobrosPage() {
     if (formHeader.tipo_referencia === 'clientes' && facturasSelec.length === 0) { toast.error('Agregá al menos una factura'); return; }
     if (formHeader.tipo_referencia === 'gastos' && gastosSelec.length === 0) { toast.error('Agregá al menos un gasto'); return; }
     if (medios.every(m => m.monto <= 0)) { toast.error('Registrá al menos un medio de pago'); return; }
+    for (const m of medios.filter(x => x.monto > 0 && x.tipo === 'cheque_diferido')) {
+      if (formHeader.tipo_referencia !== 'clientes') { toast.error('Los cheques diferidos solo aplican a cobros de clientes'); return; }
+      if (!m.banco_id) { toast.error('Cheque diferido: seleccioná el banco emisor'); return; }
+      if (!toDigitsOnly(m.numero_cheque)) { toast.error('Cheque diferido: ingresá el número de cheque'); return; }
+      if (!m.fecha_cheque) { toast.error('Cheque diferido: ingresá la fecha de cobro'); return; }
+      if (m.moneda === 'USD' && !(m.tipo_cambio && m.tipo_cambio > 0)) { toast.error('Cheque en USD: ingresá el tipo de cambio (Gs. por USD)'); return; }
+      if (m.fecha_cheque < formHeader.fecha) { toast.error('Cheque diferido: la fecha de cobro no puede ser anterior a la emisión'); return; }
+    }
     if (Math.abs(diferencia) > RECON_TOLERANCE) {
       const tipo = diferencia > 0 ? 'falta' : 'excedente';
       toast.error(`Diferencia sin cubrir (${tipo}): ${formatCurrency(Math.abs(diferencia))}`);
@@ -229,11 +239,45 @@ export default function CobrosPage() {
       if (retenciones.length > 0) await supabase.from('cobro_retenciones').insert(retenciones.map(r => ({ cobro_id: cobro.id, ...r, numero_retencion: toDigitsOnly(r.numero_retencion) || null })));
 
       const mediosData = medios.filter(m => m.monto > 0).map(m => ({
-        cobro_id: cobro.id, tipo: m.tipo, monto: m.monto,
+        cobro_id: cobro.id, tipo: m.tipo, monto: montoGs(m),
         banco_id: m.banco_id || null, numero_cheque: toDigitsOnly(m.numero_cheque) || null,
         fecha_cheque: m.fecha_cheque || null, numero_transaccion: toDigitsOnly(m.numero_transaccion) || null,
       }));
       if (mediosData.length > 0) await supabase.from('cobro_medios_pago').insert(mediosData);
+
+      // Registro de cheques diferidos (pendientes) asociados a las facturas del cobro
+      if (formHeader.tipo_referencia === 'clientes') {
+        const consumido: Record<string, number> = {};
+        for (const m of medios.filter(x => x.monto > 0 && x.tipo === 'cheque_diferido')) {
+          const banco = bancos.find(b => b.id === m.banco_id);
+          const { data: cheque, error: chequeErr } = await supabase.from('cheques_diferidos').insert({
+            cliente_id: formHeader.cliente_id,
+            banco_emisor: banco?.nombre || 'Sin banco',
+            numero_cheque: toDigitsOnly(m.numero_cheque),
+            monto: m.monto,
+            moneda: m.moneda === 'USD' ? 'USD' : 'GS',
+            tipo_cambio: m.moneda === 'USD' ? m.tipo_cambio : null,
+            fecha_emision: formHeader.fecha,
+            fecha_cobro: m.fecha_cheque,
+            estado: 'pendiente',
+            observaciones: `Generado desde el cobro ${numCobro}`,
+            cobro_id: cobro.id,
+          }).select('id').single();
+          if (chequeErr) {
+            if (isSchemaCacheMissing(chequeErr, ['cheques_diferidos', 'tipo_cambio'])) { toast('Aplicá la migración 019 para registrar el seguimiento de cheques diferidos.'); break; }
+            throw chequeErr;
+          }
+          // Reparto del monto del cheque entre las facturas del cobro
+          let restante = montoGs(m);
+          const aplicaciones: { cheque_id: string; venta_id: string; monto_aplicado: number }[] = [];
+          for (const f of facturasSelec) {
+            if (restante <= 0) break;
+            const aplicar = Math.min(restante, Math.max(0, f.monto_aplicado - (consumido[f.venta_id] || 0)));
+            if (aplicar > 0) { consumido[f.venta_id] = (consumido[f.venta_id] || 0) + aplicar; aplicaciones.push({ cheque_id: cheque.id, venta_id: f.venta_id, monto_aplicado: aplicar }); restante -= aplicar; }
+          }
+          if (aplicaciones.length > 0) await supabase.from('cheque_diferido_ventas').insert(aplicaciones);
+        }
+      }
 
       if (formHeader.tipo_referencia === 'clientes') {
         for (const f of facturasSelec) {
@@ -603,6 +647,24 @@ export default function CobrosPage() {
                               {bancos.map(b => <option key={b.id} value={b.id}>{b.nombre}</option>)}
                             </select>
                           </div>
+                          {m.tipo === 'cheque_diferido' && (
+                            <>
+                              <div>
+                                <label className="label text-xs">Moneda</label>
+                                <select className="input py-1.5" value={m.moneda || 'GS'} onChange={e => setMedios(prev => prev.map((x, i) => i === idx ? { ...x, moneda: e.target.value as 'GS' | 'USD' } : x))}>
+                                  <option value="GS">Guaraníes (GS)</option>
+                                  <option value="USD">Dólares (USD)</option>
+                                </select>
+                              </div>
+                              {m.moneda === 'USD' && (
+                                <div>
+                                  <label className="label text-xs">Tipo de cambio (Gs./USD)</label>
+                                  <input type="number" min="0" step="1" inputMode="numeric" className="input py-1.5" value={m.tipo_cambio || ''} onChange={e => setMedios(prev => prev.map((x, i) => i === idx ? { ...x, tipo_cambio: toInteger(e.target.value, 0) } : x))} />
+                                  <p className="text-[10px] text-gray-400 mt-0.5">= {formatCurrency(montoGs(m))}</p>
+                                </div>
+                              )}
+                            </>
+                          )}
                           {m.tipo === 'cheque_diferido' && (
                             <div>
                               <label className="label text-xs">Fecha cobro cheque</label>
