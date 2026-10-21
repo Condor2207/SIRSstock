@@ -88,7 +88,7 @@ export default function ChequesPage() {
           await supabase.from('ventas').update({ saldo_pendiente: saldo, estado }).eq('id', a.venta_id);
           total += Number(a.monto_aplicado);
         }
-        if (total > 0 && c.moneda === 'GS') {
+        if (total > 0) {
           const { data: cli } = await supabase.from('clientes').select('saldo_pendiente').eq('id', c.cliente_id).single();
           if (cli) await supabase.from('clientes').update({ saldo_pendiente: Number(cli.saldo_pendiente || 0) + total }).eq('id', c.cliente_id);
         }
