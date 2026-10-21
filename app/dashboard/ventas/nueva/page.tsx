@@ -71,11 +71,7 @@ export default function NuevaVentaPage() {
     ]);
     setListas((listasRes.data || []) as ListaPrecios[]);
     setClientes(clientesRes.data as Cliente[] || []);
-    const prods = ((productosRes.data || []) as Producto[]).filter(p => {
-      const clas = (p as any).clasificaciones;
-      if (!(p as any).es_servicio && !(p.stock_actual > 0)) return false;
-      return !clas || clas.aparece_en_factura !== false;
-    });
+    const prods = (productosRes.data || []) as Producto[];
     // Ordenar lotes FEFO
     prods.forEach(p => {
       if (p.lotes) {
