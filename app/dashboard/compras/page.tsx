@@ -81,17 +81,20 @@ export default function ComprasPage() {
     setLoading(true);
     const { data } = await supabase.from('compras').select('*, proveedores(nombre)').order('created_at', { ascending: false }).limit(200);
     setCompras(data as Compra[] || []);
-    const compatProbe = await supabase.from('compras').select('id, numero_factura, moneda').limit(1);
-    if (compatProbe.error && isSchemaCacheMissing(compatProbe.error, ['compras', 'numero_factura', 'moneda'])) {
+    const compatProbe = await supabase.from('compras').select('id, numero_factura, moneda, tipo_cambio, iva_total, comprobante_url, comprobante_nombre').limit(1);
+    if (compatProbe.error && isSchemaCacheMissing(compatProbe.error, ['compras', 'numero_factura', 'moneda', 'tipo_cambio', 'iva_total', 'comprobante_url', 'comprobante_nombre'])) {
       setSchemaCompatNumeroFactura(true);
       setSchemaCompatMoneda(true);
       if (!compatToastShown.current) {
         toast('La base de datos no tiene aún la migración 022 (moneda / comprobante). Ejecutala para registrar nuevas compras.');
         compatToastShown.current = true;
       }
-    } else {
+    } else if (!compatProbe.error) {
       setSchemaCompatNumeroFactura(false);
       setSchemaCompatMoneda(false);
+    } else {
+      setSchemaCompatMoneda(true);
+      toast.error(getErrorMessage(compatProbe.error) || 'No se pudo verificar el esquema de compras');
     }
     setLoading(false);
   }, [supabase]);

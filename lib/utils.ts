@@ -172,7 +172,8 @@ export function getDeleteErrorMessage(error: unknown, entityLabel: string): stri
 export function isSchemaCacheMissing(error: unknown, refs: string[] = []): boolean {
   const message = getErrorMessage(error).toLowerCase();
   if (!message) return false;
-  const mentionsSchemaCache = message.includes('schema cache') || message.includes('could not find');
+  const mentionsSchemaCache = message.includes('schema cache') || message.includes('could not find') ||
+    (message.includes('does not exist') && (message.includes('column') || message.includes('relation')));
   if (!mentionsSchemaCache) return false;
   if (refs.length === 0) return true;
   return refs.some(ref => {

@@ -27,19 +27,11 @@ Sistema full-stack de gestión comercial para empresas productoras y distribuido
 ### 1. Configurar Supabase
 
 1. Crear proyecto en [supabase.com](https://supabase.com)
-2. Ir a **SQL Editor** y ejecutar **todas** las migraciones de `supabase/migrations/` en orden:
-   - `001_init.sql`
-   - `002_datos_demo.sql`
-   - `003_rg90.sql`
-   - `004_ajustes_core.sql`
-   - `005_configuraciones.sql`
-   - `006_cobros_comisiones.sql`
-   - `007_fixes.sql`
-   - `008_empresa_config_hotfix.sql`
-   - `009_schema_compat_modulos.sql`
-   - `010_modulos_credito_gastos.sql`
-   - `011_schema_catchall.sql`
-3. Si ya tenías una base creada y aparece `Could not find the table 'public.xxx' in the schema cache` o faltan columnas nuevas de gastos/compras/cobros, ejecutá **todas** las migraciones desde `003_rg90.sql` en adelante — seguras de re-ejecutar gracias a `IF NOT EXISTS`.
+2. Ir a **SQL Editor** y ejecutar las migraciones de `supabase/migrations/` en orden numérico. `002_datos_demo.sql` contiene datos de demostración: no la ejecutes en producción.
+3. En una base existente, aplicá únicamente las migraciones pendientes, en orden. Para las funciones de compras, gastos y notas de crédito se necesitan `022_compras_usd_nc_cuotas_servicios.sql`, `023_notas_credito_venta.sql` y `024_nc_emitidas_transacciones.sql`, además de sus migraciones anteriores.
+   - La 022 agrega, entre otras, `compras.comprobante_nombre`, `gastos.tipo_servicio` y las tablas de NC recibidas.
+   - La 023 crea las tablas de NC emitidas; la 024 agrega el registro y anulación transaccionales.
+   - Si la API todavía indica que falta una columna o tabla después de aplicarlas, ejecutá `NOTIFY pgrst, 'reload schema';` en SQL Editor y recargá la página. Verificá que el proyecto Supabase sea el mismo configurado en la aplicación.
 4. Copiar URL y Anon Key desde **Settings → API**
 
 ### 2. Variables de entorno

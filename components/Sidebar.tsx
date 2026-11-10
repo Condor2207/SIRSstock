@@ -33,7 +33,7 @@ const navSections: NavSection[] = [
       { href: '/dashboard/clientes', icon: Users, label: 'Clientes' },
       { href: '/dashboard/proveedores', icon: Truck, label: 'Proveedores' },
       { href: '/dashboard/compras', icon: CreditCard, label: 'Compras' },
-      { href: '/dashboard/notas-credito', icon: FileMinus, label: 'NC recibidas' },
+      { href: '/dashboard/notas-credito', icon: FileMinus, label: 'NC recibidas', exact: true },
       { href: '/dashboard/notas-credito-emitidas', icon: FilePlus2, label: 'NC emitidas' },
       { href: '/dashboard/gastos', icon: Receipt, label: 'Gastos' },
       { href: '/dashboard/produccion', icon: Factory, label: 'Producción' },

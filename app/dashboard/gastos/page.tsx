@@ -73,7 +73,6 @@ export default function GastosPage() {
       data = legacyRes.data;
       error = legacyRes.error;
       if (error && isSchemaCacheMissing(error, ['moneda', 'tipo_cambio'])) {
-        setSchemaCompatMode(true);
         const baseRes = await supabase
           .from('gastos')
           .select(GASTOS_SELECT_BASE)
@@ -183,6 +182,10 @@ export default function GastosPage() {
   }
 
   async function handleSave() {
+    if (faltaMigracion022 || schemaCompatMode) {
+      toast.error('Aplicá las migraciones pendientes de gastos, incluida la 022, antes de guardar.');
+      return;
+    }
     if (!form.categoria || !form.monto) { toast.error('Categoría y monto son obligatorios'); return; }
     const proveedorId = form.proveedor_id.trim();
     if (!proveedorId) { toast.error('Por favor seleccione un proveedor'); return; }
@@ -268,7 +271,7 @@ export default function GastosPage() {
       load();
     } catch (e: any) {
       const message = getErrorMessage(e) || 'Error al guardar';
-      if (/gastos\.(tipo_servicio|detalle_servicio|comprobante_url|comprobante_nombre)|column .* does not exist/i.test(message)) {
+      if (isSchemaCacheMissing(e, ['tipo_servicio', 'detalle_servicio', 'comprobante_url', 'comprobante_nombre'])) {
         setFaltaMigracion022(true);
         toast.error('Faltan columnas de la migración 022 en Supabase. Aplicala y recargá el esquema antes de guardar gastos.');
       } else {

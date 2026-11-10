@@ -7,11 +7,9 @@ import { ComprobanteInput } from '@/components/ComprobanteInput';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
 import { subirComprobante, abrirComprobante } from '@/lib/comprobantes';
-import { moverStock } from '@/lib/stock';
-import { aplicarCreditoAVenta, revertirCreditoVenta, type VentaCuotaAplicada } from '@/lib/ventas-saldos';
 import {
-  DECIMALES_CANTIDAD, MOTIVOS_NC, formatCantidad, formatDate, formatMontoMoneda, generarNumero,
-  getErrorMessage, hoyISO, ivaIncluido, parseDecimal, roundMoneda, roundTo, sanitizeDecimalInput, toDigitsOnly,
+  DECIMALES_CANTIDAD, MOTIVOS_NC, formatCantidad, formatDate, formatMontoMoneda,
+  getErrorMessage, hoyISO, isSchemaCacheMissing, ivaIncluido, parseDecimal, roundMoneda, sanitizeDecimalInput, tipoControlDeProducto,
 } from '@/lib/utils';
 import { Ban, Download, Eye, FileMinus, Loader2, Plus, Search, Trash2, X } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -56,7 +54,8 @@ export default function NotasCreditoEmitidasPage() {
     const { data, error } = await supabase.from('notas_credito_venta')
       .select('*, clientes(nombre), ventas(numero)')
       .order('created_at', { ascending: false }).limit(500);
-    setFaltaMigracion(!!error);
+    setFaltaMigracion(isSchemaCacheMissing(error, ['notas_credito_venta']));
+    if (error && !isSchemaCacheMissing(error, ['notas_credito_venta'])) toast.error(getErrorMessage(error) || 'No se pudieron cargar las NC emitidas');
     setNotas((data || []) as NotaEmitida[]);
     setLoading(false);
   }, [supabase]);
@@ -106,14 +105,6 @@ export default function NotasCreditoEmitidasPage() {
     setForm({ cliente_id: '', venta_id: '', fecha_emision: hoyISO(), fecha_registro: hoyISO(), numero_comprobante: '', motivo: 'devolucion', afecta_stock: true, notas: '' });
   }
 
-  async function siguienteNumero() {
-    const { data, error } = await supabase.from('notas_credito_venta').select('numero')
-      .order('created_at', { ascending: false }).limit(1);
-    if (error) throw error;
-    const ultimo = data?.[0]?.numero ? parseInt(String(data[0].numero).replace(/\D/g, ''), 10) || 0 : 0;
-    return generarNumero('NCE', ultimo + 1);
-  }
-
   async function guardar() {
     if (!form.cliente_id) { toast.error('Seleccioná un cliente'); return; }
     if (!form.numero_comprobante.trim() && !file) { toast.error('El comprobante es obligatorio: ingresá el número o adjuntá el archivo'); return; }
@@ -123,83 +114,37 @@ export default function NotasCreditoEmitidasPage() {
     for (const i of validos) {
       if (parseDecimal(i.cantidad) <= 0 || parseDecimal(i.precio) <= 0) { toast.error('La cantidad y el precio de cada ítem deben ser mayores a 0'); return; }
       if (form.afecta_stock && !i.producto_id) { toast.error('Para devolver stock, cada ítem debe ser un producto'); return; }
+      const producto = productoMap.get(i.producto_id);
+      if (producto?.permite_decimales === false && !Number.isInteger(parseDecimal(i.cantidad))) { toast.error('El producto no permite cantidades decimales'); return; }
+      if (form.afecta_stock && producto && tipoControlDeProducto(producto) !== 'generico' && !i.lote_id) { toast.error(`Seleccioná el lote de ${producto.nombre}`); return; }
     }
 
     setSaving(true);
-    let ncId: string | null = null;
-    const movidos: { productoId: string; cantidad: number; loteId: string | null }[] = [];
-    let aplicadoVenta: { ventaId: string; monto: number; detalle: VentaCuotaAplicada[] } | null = null;
     try {
-      const numero = await siguienteNumero();
       const comprobanteUrl = file ? await subirComprobante(supabase, file, 'notas-credito-emitidas') : null;
-      const { data: nc, error } = await supabase.from('notas_credito_venta').insert({
-        numero, numero_comprobante: toDigitsOnly(form.numero_comprobante) || form.numero_comprobante.trim() || null,
+      const filas = validos.map(i => ({
+        producto_id: i.producto_id || null, lote_id: i.lote_id || null,
+        descripcion: i.descripcion.trim(), cantidad: parseDecimal(i.cantidad),
+        precio_unitario: parseDecimal(i.precio), tasa_iva_porcentaje: parseDecimal(i.tasa),
+      }));
+      const { data: ncId, error } = await supabase.rpc('registrar_nc_emitida', { p_nc: {
+        numero_comprobante: form.numero_comprobante.trim() || null,
         comprobante_url: comprobanteUrl, comprobante_nombre: file?.name || null,
         cliente_id: form.cliente_id, venta_id: form.venta_id || null,
         fecha_emision: form.fecha_emision, fecha_registro: form.fecha_registro || hoyISO(),
-        motivo: form.motivo, afecta_stock: form.afecta_stock,
-        subtotal: calculo.neto, iva_total: calculo.iva, total: calculo.total, notas: form.notas.trim() || null,
-      }).select('id').single();
+        motivo: form.motivo, afecta_stock: form.afecta_stock, notas: form.notas.trim() || null,
+      }, p_items: filas });
       if (error) throw error;
-      ncId = nc.id;
-
-      const filas = validos.map(i => {
-        const subtotal = roundMoneda(parseDecimal(i.cantidad) * parseDecimal(i.precio), 'GS');
-        const prod = productoMap.get(i.producto_id);
-        const lote = (lotes[i.producto_id] || []).find(l => l.id === i.lote_id);
-        return {
-          nota_credito_id: nc.id, producto_id: i.producto_id || null, lote_id: i.lote_id || null,
-          numero_lote: lote?.numero_lote || null, descripcion: i.descripcion.trim() || prod?.nombre || 'Ítem',
-          cantidad: roundTo(parseDecimal(i.cantidad), DECIMALES_CANTIDAD), precio_unitario: roundTo(parseDecimal(i.precio), 4),
-          tasa_iva_porcentaje: parseDecimal(i.tasa), monto_iva: ivaIncluido(subtotal, parseDecimal(i.tasa), 'GS'), subtotal,
-        };
-      });
-      const { error: itemsError } = await supabase.from('nota_credito_venta_items').insert(filas);
-      if (itemsError) throw itemsError;
-
-      if (form.afecta_stock) {
-        for (const item of filas) {
-          await moverStock(supabase, {
-            productoId: item.producto_id!, delta: item.cantidad, tipo: 'devolucion',
-            referenciaTipo: 'nota_credito_venta', referenciaId: nc.id,
-            notas: `NC emitida ${numero}`, loteId: item.lote_id,
-          });
-          movidos.push({ productoId: item.producto_id!, cantidad: item.cantidad, loteId: item.lote_id });
-        }
-      }
-
-      if (form.venta_id) {
-        const r = await aplicarCreditoAVenta(supabase, form.venta_id, form.cliente_id, calculo.total);
-        if (r.aplicado > 0) {
-          aplicadoVenta = { ventaId: form.venta_id, monto: r.aplicado, detalle: r.detalle };
-          const { error: appError } = await supabase.from('nota_credito_venta_aplicaciones').insert({
-            nota_credito_id: nc.id, venta_id: form.venta_id, monto: r.aplicado, detalle_cuotas: r.detalle,
-          });
-          if (appError) throw appError;
-          const { error: updateError } = await supabase.from('notas_credito_venta').update({ monto_aplicado: r.aplicado }).eq('id', nc.id);
-          if (updateError) throw updateError;
-        }
-      }
-
-      await logAudit(supabase, { modulo: 'Notas de crédito', entidad: 'NC venta', accion: 'crear', descripcion: `Registró la NC emitida ${numero} por ${formatMontoMoneda(calculo.total, 'GS')}`, registroId: nc.id });
-      toast.success(`NC ${numero} registrada`);
+      toast.success('NC emitida registrada');
       setShowForm(false);
       reset();
       load();
       loadVentas();
+      await logAudit(supabase, { modulo: 'Notas de crédito', entidad: 'NC venta', accion: 'crear', descripcion: `Registró una NC emitida por ${formatMontoMoneda(calculo.total, 'GS')}`, registroId: ncId });
     } catch (e) {
-      if (aplicadoVenta) await revertirCreditoVenta(supabase, aplicadoVenta.ventaId, aplicadoVenta.monto, aplicadoVenta.detalle).catch(() => undefined);
-      for (const mov of movidos) {
-        await moverStock(supabase, {
-          productoId: mov.productoId, delta: -mov.cantidad, tipo: 'ajuste',
-          referenciaTipo: 'nota_credito_venta_revertida', loteId: mov.loteId,
-          notas: 'Reversión por error al guardar NC emitida',
-        }).catch(() => undefined);
-      }
-      if (ncId) await supabase.from('notas_credito_venta').delete().eq('id', ncId);
       const message = getErrorMessage(e);
-      toast.error(message.includes('notas_credito_venta') || message.includes('nota_credito_venta_items')
-        ? 'Falta aplicar la migración 023 de NC emitidas en Supabase'
+      toast.error(isSchemaCacheMissing(e, ['registrar_nc_emitida'])
+        ? 'Falta aplicar la migración 024 de NC emitidas en Supabase'
         : message || 'No se pudo registrar la NC emitida');
     } finally {
       setSaving(false);
@@ -217,25 +162,7 @@ export default function NotasCreditoEmitidasPage() {
   async function anular(nc: NotaEmitida) {
     if (nc.estado === 'anulada' || !window.confirm(`¿Anular la NC ${nc.numero}? Se revertirán stock y saldos aplicados.`)) return;
     try {
-      const [{ data: its, error: itemError }, { data: aps, error: appError }] = await Promise.all([
-        supabase.from('nota_credito_venta_items').select('producto_id, lote_id, cantidad').eq('nota_credito_id', nc.id),
-        supabase.from('nota_credito_venta_aplicaciones').select('id, venta_id, monto, detalle_cuotas').eq('nota_credito_id', nc.id),
-      ]);
-      if (itemError) throw itemError;
-      if (appError) throw appError;
-      if (nc.afecta_stock) for (const i of its || []) {
-        if (i.producto_id) await moverStock(supabase, {
-          productoId: i.producto_id, delta: -Number(i.cantidad), tipo: 'ajuste',
-          referenciaTipo: 'nota_credito_venta_anulada', referenciaId: nc.id,
-          notas: `Anulación NC ${nc.numero}`, loteId: i.lote_id,
-        });
-      }
-      for (const a of aps || []) {
-        await revertirCreditoVenta(supabase, a.venta_id, Number(a.monto), (a.detalle_cuotas || []) as VentaCuotaAplicada[]);
-      }
-      const { error: deleteError } = await supabase.from('nota_credito_venta_aplicaciones').delete().eq('nota_credito_id', nc.id);
-      if (deleteError) throw deleteError;
-      const { error } = await supabase.from('notas_credito_venta').update({ estado: 'anulada', monto_aplicado: 0 }).eq('id', nc.id);
+      const { error } = await supabase.rpc('anular_nc_emitida', { p_id: nc.id });
       if (error) throw error;
       await logAudit(supabase, { modulo: 'Notas de crédito', entidad: 'NC venta', accion: 'anular', descripcion: `Anuló la NC emitida ${nc.numero}`, registroId: nc.id });
       toast.success('NC anulada');
@@ -275,7 +202,7 @@ export default function NotasCreditoEmitidasPage() {
           </div>
           <div className="flex gap-2">
             <button onClick={exportar} className="btn-secondary flex items-center gap-2"><Download className="w-4 h-4" /> Excel</button>
-            <button onClick={() => { reset(); setShowForm(true); }} className="btn-primary flex items-center gap-2"><Plus className="w-4 h-4" /> Nueva NC</button>
+            <button disabled={faltaMigracion} onClick={() => { reset(); setShowForm(true); }} className="btn-primary flex items-center gap-2"><Plus className="w-4 h-4" /> Nueva NC</button>
           </div>
         </div>
         <div className="card overflow-hidden">
@@ -322,7 +249,7 @@ export default function NotasCreditoEmitidasPage() {
               {items.map((it, i) => <div key={i} className="grid grid-cols-12 items-end gap-2 rounded-lg bg-gray-50 p-2 dark:bg-gray-800/40">
                 <div className="col-span-12 md:col-span-4"><label className="label text-xs">Producto / descripción</label><SearchSelect options={productos.map(p => ({ value: p.id, label: p.nombre, sublabel: p.sku }))} value={it.producto_id} onChange={v => {
                   const p = productoMap.get(v);
-                  setItems(prev => prev.map((x, idx) => idx === i ? { ...x, producto_id: v, descripcion: p?.nombre || '', precio: p?.precio_venta ? String(p.precio_venta) : '', lote_id: '' } : x));
+                  setItems(prev => prev.map((x, idx) => idx === i ? { ...x, producto_id: v, descripcion: p?.nombre || '', precio: p?.precio_venta && (!p.moneda_venta || p.moneda_venta === 'PYG' || p.moneda_venta === 'GS') ? String(p.precio_venta) : '', lote_id: '' } : x));
                   if (v) cargarLotes(v);
                 }} placeholder="Seleccionar producto" />
                 {!it.producto_id && <input className="input mt-1" placeholder="Descripción libre (sin movimiento de stock)" value={it.descripcion} onChange={e => setItems(prev => prev.map((x, idx) => idx === i ? { ...x, descripcion: e.target.value } : x))} />}
@@ -332,7 +259,7 @@ export default function NotasCreditoEmitidasPage() {
                 <div className="col-span-3 md:col-span-1"><label className="label text-xs">IVA %</label><select className="input" value={it.tasa} onChange={e => setItems(prev => prev.map((x, idx) => idx === i ? { ...x, tasa: e.target.value } : x))}><option value="10">10</option><option value="5">5</option><option value="0">0</option></select></div>
                 <div className="col-span-3 md:col-span-2 text-right text-sm font-semibold">{formatMontoMoneda(calculo.lineas[i]?.importe || 0, 'GS')}</div>
                 <div className="col-span-12 md:col-span-1 text-right">{items.length > 1 && <button onClick={() => setItems(prev => prev.filter((_, idx) => idx !== i))} className="p-1 text-red-500"><Trash2 className="h-4 w-4" /></button>}</div>
-                {form.afecta_stock && it.producto_id && (lotes[it.producto_id] || []).length > 0 && <div className="col-span-12"><label className="label text-xs">Lote a devolver (opcional)</label><select className="input" value={it.lote_id} onChange={e => setItems(prev => prev.map((x, idx) => idx === i ? { ...x, lote_id: e.target.value } : x))}><option value="">Sin lote / genérico</option>{lotes[it.producto_id].map(l => <option key={l.id} value={l.id}>{l.numero_lote} · stock {formatCantidad(l.stock_actual)}</option>)}</select></div>}
+                {form.afecta_stock && it.producto_id && (lotes[it.producto_id] || []).length > 0 && <div className="col-span-12"><label className="label text-xs">Lote a devolver (obligatorio para productos controlados)</label><select className="input" value={it.lote_id} onChange={e => setItems(prev => prev.map((x, idx) => idx === i ? { ...x, lote_id: e.target.value } : x))}><option value="">Sin lote / genérico</option>{lotes[it.producto_id].map(l => <option key={l.id} value={l.id}>{l.numero_lote} · stock {formatCantidad(l.stock_actual)}</option>)}</select></div>}
               </div>)}
             </div>
             <div className="space-y-1 text-right text-sm"><div>Subtotal sin IVA: <b>{formatMontoMoneda(calculo.neto, 'GS')}</b></div><div>IVA incluido: <b>{formatMontoMoneda(calculo.iva, 'GS')}</b></div><div className="text-base">Total NC: <b>{formatMontoMoneda(calculo.total, 'GS')}</b></div></div>

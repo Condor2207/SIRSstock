@@ -7,7 +7,13 @@
 -- ============================================================
 
 -- ---------- Productos: tipo de control y decimales ----------
-ALTER TABLE productos ADD COLUMN IF NOT EXISTS tipo_control TEXT NOT NULL DEFAULT 'generico';
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema = 'public' AND table_name = 'productos' AND column_name = 'tipo_control') THEN
+    ALTER TABLE productos ADD COLUMN tipo_control TEXT NOT NULL DEFAULT 'generico';
+    UPDATE productos SET tipo_control = 'lote_vencimiento' WHERE control_lote = TRUE;
+  END IF;
+END $$;
 ALTER TABLE productos ADD COLUMN IF NOT EXISTS permite_decimales BOOLEAN NOT NULL DEFAULT TRUE;
 DO $$
 BEGIN
@@ -16,9 +22,6 @@ BEGIN
       CHECK (tipo_control IN ('lote_vencimiento', 'solo_lote', 'solo_vencimiento', 'generico'));
   END IF;
 END $$;
--- Los productos que ya controlaban lote conservan lote + vencimiento
-UPDATE productos SET tipo_control = 'lote_vencimiento' WHERE control_lote = TRUE AND tipo_control = 'generico';
-
 -- ---------- Compras: moneda, tipo de cambio, IVA, comprobante ----------
 ALTER TABLE compras ADD COLUMN IF NOT EXISTS numero_factura TEXT;
 ALTER TABLE compras ADD COLUMN IF NOT EXISTS moneda TEXT NOT NULL DEFAULT 'GS';

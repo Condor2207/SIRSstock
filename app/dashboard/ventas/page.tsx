@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, formatDateTime, estadoBadgeClass, formatNumeroFactura } from '@/lib/utils';
+import { formatCurrency, formatDateTime, estadoBadgeClass, formatNumeroFactura, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
 import { Plus, Search, Eye, Trash2, X, Loader2, ShoppingCart } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
@@ -65,6 +65,16 @@ export default function VentasPage() {
 
   async function confirmarAnulacion() {
     if (!ventaAnulando || !motivoAnulacion.trim()) return;
+    const { data: notasCredito, error: ncError } = await supabase.from('notas_credito_venta')
+      .select('id').eq('venta_id', ventaAnulando).eq('estado', 'vigente').limit(1);
+    if (ncError && !isSchemaCacheMissing(ncError, ['notas_credito_venta'])) {
+      toast.error(getErrorMessage(ncError) || 'No se pudieron verificar las notas de crédito de la venta');
+      return;
+    }
+    if (notasCredito?.length) {
+      toast.error('Anulá primero las notas de crédito emitidas asociadas a esta venta');
+      return;
+    }
     const { data: ventaData } = await supabase
       .from('ventas')
       .select('*, venta_items(*, productos(*)), clientes(saldo_pendiente)')

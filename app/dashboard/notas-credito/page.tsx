@@ -12,16 +12,16 @@ import { moverStock } from '@/lib/stock';
 import { aplicarCreditoACompra, revertirCreditoCompra } from '@/lib/compras-saldos';
 import { descargarExcel } from '@/lib/export';
 import {
-  formatDate, getErrorMessage, generarNumero, hoyISO, sanitizeDecimalInput, parseDecimal, roundTo, roundMoneda,
+  formatDate, getErrorMessage, isSchemaCacheMissing, generarNumero, hoyISO, sanitizeDecimalInput, parseDecimal, roundTo, roundMoneda,
   formatCantidad, formatMontoMoneda, ivaIncluido, DECIMALES_CANTIDAD, DECIMALES_TIPO_CAMBIO,
-  MOTIVOS_NC, requiereLote, tipoControlDeProducto, toDigitsOnly,
+  MOTIVOS_NC, requiereLote, tipoControlDeProducto,
 } from '@/lib/utils';
 import { Plus, Search, X, Loader2, Eye, Ban, Link2, Download, Paperclip, UserPlus, Trash2, FileMinus } from 'lucide-react';
 import toast from 'react-hot-toast';
 import type { Proveedor } from '@/lib/types';
 import { usePagination, Pagination } from '@/components/TableUtils';
 
-interface ProductoOpt { id: string; nombre: string; sku?: string; precio_costo?: number; permite_decimales?: boolean; tipo_control?: string | null; control_lote?: boolean | null; }
+interface ProductoOpt { id: string; nombre: string; sku?: string; precio_compra?: number; permite_decimales?: boolean; tipo_control?: string | null; control_lote?: boolean | null; }
 interface LoteOpt { id: string; numero_lote: string; stock_actual: number; fecha_vencimiento?: string | null; }
 interface CompraOpt { id: string; numero: string; numero_factura?: string | null; proveedor_id: string; moneda: 'GS' | 'USD'; saldo_pendiente: number; total: number; }
 interface ItemForm { producto_id: string; descripcion: string; cantidad: string; precio: string; tasa: string; lote_id: string; }
@@ -62,7 +62,8 @@ export default function NotasCreditoPage() {
     setLoading(true);
     const { data, error } = await supabase.from('notas_credito_compra').select(NC_SELECT).order('created_at', { ascending: false }).limit(500);
     if (error) {
-      setFaltaMigracion(true);
+      setFaltaMigracion(isSchemaCacheMissing(error, ['notas_credito_compra', 'compras']));
+      if (!isSchemaCacheMissing(error, ['notas_credito_compra', 'compras'])) toast.error(getErrorMessage(error) || 'No se pudieron cargar las NC recibidas');
       setNcs([]);
     } else {
       setFaltaMigracion(false);
@@ -72,7 +73,8 @@ export default function NotasCreditoPage() {
   }, [supabase]);
 
   const loadCompras = useCallback(async () => {
-    const { data } = await supabase.from('compras').select('id, numero, numero_factura, proveedor_id, moneda, saldo_pendiente, total').gt('saldo_pendiente', 0).order('created_at', { ascending: false });
+    const { data, error } = await supabase.from('compras').select('id, numero, numero_factura, proveedor_id, moneda, saldo_pendiente, total').gt('saldo_pendiente', 0).order('created_at', { ascending: false });
+    if (error && !isSchemaCacheMissing(error, ['moneda', 'numero_factura'])) toast.error(getErrorMessage(error) || 'No se pudieron cargar las compras');
     setCompras(((data || []) as any[]).map(c => ({ ...c, moneda: c.moneda || 'GS' })));
   }, [supabase]);
 
@@ -81,9 +83,14 @@ export default function NotasCreditoPage() {
     loadCompras();
     supabase.from('proveedores').select('id, nombre').eq('activo', true).order('nombre').then(r => setProveedores(r.data as Proveedor[] || []));
     (async () => {
-      const full = await supabase.from('productos').select('id, nombre, sku, precio_costo, permite_decimales, tipo_control, control_lote').eq('activo', true).order('nombre');
+      const full = await supabase.from('productos').select('id, nombre, sku, precio_compra, permite_decimales, tipo_control, control_lote').eq('activo', true).order('nombre');
       if (!full.error) { setProductos(full.data as ProductoOpt[] || []); return; }
-      const legacy = await supabase.from('productos').select('id, nombre, sku, precio_costo, control_lote').eq('activo', true).order('nombre');
+      if (!isSchemaCacheMissing(full.error, ['permite_decimales', 'tipo_control'])) {
+        toast.error(getErrorMessage(full.error) || 'No se pudieron cargar los productos');
+        return;
+      }
+      const legacy = await supabase.from('productos').select('id, nombre, sku, precio_compra, control_lote').eq('activo', true).order('nombre');
+      if (legacy.error) toast.error(getErrorMessage(legacy.error) || 'No se pudieron cargar los productos');
       setProductos(legacy.data as ProductoOpt[] || []);
     })();
   }, [load, loadCompras, supabase]);
@@ -112,7 +119,7 @@ export default function NotasCreditoPage() {
 
   function elegirProducto(i: number, id: string) {
     const p = prodMap.get(id);
-    setItem(i, { producto_id: id, descripcion: p?.nombre || '', precio: p?.precio_costo ? String(p.precio_costo) : '', lote_id: '' });
+    setItem(i, { producto_id: id, descripcion: p?.nombre || '', precio: p?.precio_compra ? String(p.precio_compra) : '', lote_id: '' });
     if (id) cargarLotes(id);
   }
 
@@ -179,7 +186,7 @@ export default function NotasCreditoPage() {
       if (file) comprobanteUrl = await subirComprobante(supabase, file, 'notas-credito');
       const { data: nc, error } = await supabase.from('notas_credito_compra').insert({
         numero,
-        numero_comprobante: toDigitsOnly(form.numero_comprobante) || form.numero_comprobante.trim() || null,
+        numero_comprobante: form.numero_comprobante.trim() || null,
         comprobante_url: comprobanteUrl,
         comprobante_nombre: file?.name || null,
         proveedor_id: form.proveedor_id,
@@ -378,7 +385,7 @@ export default function NotasCreditoPage() {
           </div>
           <div className="flex items-center gap-2">
             <button onClick={exportar} className="btn-secondary flex items-center gap-2"><Download className="w-4 h-4" /> Excel</button>
-            <button onClick={() => { resetForm(); setShowModal(true); }} className="btn-primary flex items-center gap-2"><Plus className="w-4 h-4" /> Nueva NC</button>
+            <button disabled={faltaMigracion} onClick={() => { resetForm(); setShowModal(true); }} className="btn-primary flex items-center gap-2"><Plus className="w-4 h-4" /> Nueva NC</button>
           </div>
         </div>
 
