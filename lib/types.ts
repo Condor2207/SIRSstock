@@ -288,8 +288,32 @@ export interface Gasto {
   detalle_servicio?: string | null;
   comprobante_url?: string | null;
   comprobante_nombre?: string | null;
+  en_cuotas?: boolean;
+  gasto_cuotas?: GastoCuota[];
+  gasto_pagos?: GastoPago[];
   created_by?: string;
   created_at: string;
+}
+
+export interface GastoCuota {
+  id: string;
+  gasto_id: string;
+  numero_cuota: number;
+  fecha_vencimiento: string;
+  monto: number;
+  monto_pagado: number;
+}
+
+export interface GastoPago {
+  id: string;
+  gasto_id: string;
+  cuota_id: string;
+  fecha: string;
+  monto: number;
+  moneda: 'GS' | 'USD';
+  medio_pago: string;
+  referencia: string | null;
+  estado: 'registrado' | 'anulado';
 }
 
 export interface MovimientoStock {

@@ -28,9 +28,10 @@ Sistema full-stack de gestión comercial para empresas productoras y distribuido
 
 1. Crear proyecto en [supabase.com](https://supabase.com)
 2. Ir a **SQL Editor** y ejecutar las migraciones de `supabase/migrations/` en orden numérico. `002_datos_demo.sql` contiene datos de demostración: no la ejecutes en producción.
-3. En una base existente, aplicá únicamente las migraciones pendientes, en orden. Para las funciones de compras, gastos y notas de crédito se necesitan `022_compras_usd_nc_cuotas_servicios.sql`, `023_notas_credito_venta.sql` y `024_nc_emitidas_transacciones.sql`, además de sus migraciones anteriores.
+3. En una base existente, aplicá únicamente las migraciones pendientes, en orden. Para las funciones de compras, gastos y notas de crédito se necesitan `022_compras_usd_nc_cuotas_servicios.sql`, `023_notas_credito_venta.sql`, `024_nc_emitidas_transacciones.sql` y `025_gastos_cuotas.sql`, además de sus migraciones anteriores.
    - La 022 agrega, entre otras, `compras.comprobante_nombre`, `gastos.tipo_servicio` y las tablas de NC recibidas.
    - La 023 crea las tablas de NC emitidas; la 024 agrega el registro y anulación transaccionales.
+   - La 025 agrega cuotas y pagos de gastos. Los créditos históricos conservan su saldo y se siguen pagando en Cobros; los nuevos planes se pagan desde la ficha del gasto.
    - Si la API todavía indica que falta una columna o tabla después de aplicarlas, ejecutá `NOTIFY pgrst, 'reload schema';` en SQL Editor y recargá la página. Verificá que el proyecto Supabase sea el mismo configurado en la aplicación.
 4. Copiar URL y Anon Key desde **Settings → API**
 

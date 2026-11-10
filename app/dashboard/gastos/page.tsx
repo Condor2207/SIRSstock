@@ -4,14 +4,14 @@ import { useEffect, useState, useCallback, useRef } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatMonto, maskNumeroFactura, esNumeroFacturaValido, formatCurrency, formatDate, estadoBadgeClass, getErrorMessage, isSchemaCacheMissing, toDigitsOnly, sanitizeDecimalInput, parseDecimal, decimalToInput, decimalesMoneda, roundMoneda, formatMontoMoneda, DECIMALES_TIPO_CAMBIO, hoyISO } from '@/lib/utils';
+import { formatMonto, maskNumeroFactura, esNumeroFacturaValido, formatCurrency, formatDate, estadoBadgeClass, getErrorMessage, isSchemaCacheMissing, toDigitsOnly, sanitizeDecimalInput, parseDecimal, decimalToInput, decimalesMoneda, roundMoneda, formatMontoMoneda, generarPlanCuotas, DECIMALES_TIPO_CAMBIO, hoyISO } from '@/lib/utils';
 import { ComprobanteInput } from '@/components/ComprobanteInput';
 import { ProveedorRapidoModal } from '@/components/ProveedorRapidoModal';
 import { subirComprobante, abrirComprobante } from '@/lib/comprobantes';
 import { descargarExcel } from '@/lib/export';
 import { Plus, Search, Receipt, X, Loader2, Edit2, Trash2, Eye, Download, Paperclip, UserPlus } from 'lucide-react';
 import toast from 'react-hot-toast';
-import type { Gasto, Proveedor, TasaIva } from '@/lib/types';
+import type { Gasto, GastoCuota, GastoPago, Proveedor, TasaIva } from '@/lib/types';
 import { usePagination, Pagination, useSort, SortableTh } from '@/components/TableUtils';
 
 const CATEGORIAS_BASE = ['Servicios', 'Combustible', 'Reparaciones', 'Insumos de oficina', 'Alquiler', 'Transporte', 'Marketing', 'Personal', 'Impuestos', 'Otros'];
@@ -22,6 +22,7 @@ const GASTOS_SELECT_LEGACY = 'id, titulo, descripcion, proveedor_id, monto, fech
 const GASTOS_SELECT_BASE = 'id, titulo, descripcion, proveedor_id, monto, fecha, medio_pago, categoria, referencia, created_by, created_at, proveedores(nombre)';
 
 interface Banco { id: string; nombre: string; }
+interface CuotaForm { fecha_vencimiento: string; monto: string; }
 
 export default function GastosPage() {
   const supabase = createClient();
@@ -41,6 +42,11 @@ export default function GastosPage() {
   const compatToastShown = useRef(false);
   const [tiposServicio, setTiposServicio] = useState<string[]>([]);
   const [faltaMigracion022, setFaltaMigracion022] = useState(false);
+  const [faltaMigracion025, setFaltaMigracion025] = useState(true);
+  const [cuotas, setCuotas] = useState<CuotaForm[]>([]);
+  const [cantidadCuotas, setCantidadCuotas] = useState('1');
+  const [intervaloCuotas, setIntervaloCuotas] = useState('30');
+  const [pago, setPago] = useState<{ cuota: GastoCuota; monto: string; fecha: string; medio: string; referencia: string } | null>(null);
   const [comprobanteFile, setComprobanteFile] = useState<File | null>(null);
   const [showProvRapido, setShowProvRapido] = useState(false);
   const [detalle, setDetalle] = useState<Gasto | null>(null);
@@ -56,9 +62,14 @@ export default function GastosPage() {
 
   const load = useCallback(async () => {
     setLoading(true);
+    const probe = await supabase.from('gastos').select('en_cuotas').limit(1);
+    setFaltaMigracion025(!!probe.error);
+    if (probe.error && !isSchemaCacheMissing(probe.error, ['en_cuotas'])) {
+      toast.error(getErrorMessage(probe.error) || 'No se pudo verificar el esquema de cuotas');
+    }
     const advancedRes = await supabase
       .from('gastos')
-      .select(GASTOS_SELECT_ADVANCED)
+      .select(`${GASTOS_SELECT_ADVANCED}${probe.error ? '' : ', en_cuotas'}`)
       .order('fecha', { ascending: false })
       .limit(100);
     let data: any[] | null = advancedRes.data;
@@ -128,6 +139,9 @@ export default function GastosPage() {
     setComprobanteFile(null);
     setCreandoCategoria(false);
     setNuevaCategoria('');
+    setCuotas([]);
+    setCantidadCuotas('1');
+    setIntervaloCuotas('30');
     setForm({
       descripcion: '', proveedor_id: '', monto: '',
       fecha: new Date().toISOString().split('T')[0],
@@ -144,6 +158,7 @@ export default function GastosPage() {
     const categoria = g.categoria || g.titulo || '';
     setCreandoCategoria(false);
     setNuevaCategoria('');
+    setCuotas([]);
     setForm({
       descripcion: g.descripcion || '',
       proveedor_id: g.proveedor_id || '',
@@ -181,6 +196,19 @@ export default function GastosPage() {
     setNuevaCategoria('');
   }
 
+  function generarCuotas() {
+    const monto = roundMoneda(parseDecimal(form.monto), form.moneda);
+    const cantidad = Number(cantidadCuotas);
+    const intervalo = Number(intervaloCuotas);
+    if (monto <= 0 || !Number.isInteger(cantidad) || cantidad < 1 || cantidad > 48 || !Number.isInteger(intervalo) || intervalo < 1 || intervalo > 3650 || !form.fecha_vencimiento) {
+      toast.error('Ingresá un monto, entre 1 y 48 cuotas, el primer vencimiento y un intervalo válido');
+      return;
+    }
+    const plan = generarPlanCuotas(monto, cantidad, form.fecha_vencimiento, intervalo, form.moneda);
+    if (plan.some(c => c.monto <= 0)) { toast.error('El monto es demasiado pequeño para esa cantidad de cuotas'); return; }
+    setCuotas(plan.map(c => ({ fecha_vencimiento: c.fecha_vencimiento, monto: String(c.monto) })));
+  }
+
   async function handleSave() {
     if (faltaMigracion022 || schemaCompatMode) {
       toast.error('Aplicá las migraciones pendientes de gastos, incluida la 022, antes de guardar.');
@@ -198,9 +226,13 @@ export default function GastosPage() {
     }
     if (form.moneda === 'USD' && form.tipo_cambio && parseDecimal(form.tipo_cambio) <= 0) { toast.error('El tipo de cambio debe ser mayor a 0'); return; }
     if (isNaN(monto) || monto <= 0) { toast.error('El monto debe ser mayor a 0'); return; }
-    if (schemaCompatMode && form.condicion === 'credito') {
-      toast.error('No se pueden registrar gastos a crédito porque faltan columnas en la base de datos. Por favor ejecute las migraciones 009, 010 y 011.');
-      return;
+    if (!editando && form.condicion === 'credito') {
+      if (faltaMigracion025) { toast.error('Aplicá la migración 025 para registrar gastos en cuotas'); return; }
+      if (!cuotas.length || cuotas.length !== Number(cantidadCuotas) || cuotas.some(c => !c.fecha_vencimiento || parseDecimal(c.monto) <= 0) ||
+        roundMoneda(cuotas.reduce((s, c) => s + parseDecimal(c.monto), 0), form.moneda) !== monto) {
+        toast.error('Generá cuotas con fechas e importes válidos cuya suma sea igual al monto del gasto');
+        return;
+      }
     }
 
     let saldoPendiente = 0;
@@ -238,7 +270,7 @@ export default function GastosPage() {
       if (!schemaCompatMode) {
         Object.assign(payload, {
           condicion: form.condicion,
-          fecha_vencimiento: form.condicion === 'credito' ? (form.fecha_vencimiento || null) : null,
+          fecha_vencimiento: editando?.en_cuotas ? editando.fecha_vencimiento || null : form.condicion === 'credito' ? (form.fecha_vencimiento || null) : null,
           numero_transaccion: form.medio_pago === 'transferencia' ? (toDigitsOnly(form.numero_transaccion) || null) : null,
           banco_id: form.medio_pago === 'cheque' ? (form.banco_id || null) : null,
           numero_cheque: form.medio_pago === 'cheque' ? (toDigitsOnly(form.numero_cheque) || null) : null,
@@ -254,16 +286,23 @@ export default function GastosPage() {
           estado,
         });
       }
+      if (editando?.en_cuotas) {
+        delete payload.saldo_pendiente;
+        delete payload.estado;
+        delete payload.fecha_vencimiento;
+      }
       const { data, error } = editando
         ? await supabase.from('gastos').update(payload).eq('id', editando.id).select('id').single()
-        : await supabase.from('gastos').insert(payload).select('id').single();
+        : form.condicion === 'credito'
+          ? await supabase.rpc('registrar_gasto_cuotas', { p_gasto: payload, p_cuotas: cuotas.map(c => ({ ...c, monto: parseDecimal(c.monto) })) })
+          : await supabase.from('gastos').insert(payload).select('id').single();
       if (error) throw error;
       await logAudit(supabase, {
         modulo: 'Gastos',
         entidad: 'Gasto',
         accion: editando ? 'editar' : 'crear',
         descripcion: `${editando ? 'Editó' : 'Registró'} el gasto ${form.categoria}`,
-        registroId: data?.id || editando?.id || null,
+        registroId: (typeof data === 'string' ? data : data?.id) || editando?.id || null,
       });
       toast.success(editando ? 'Gasto actualizado' : 'Gasto registrado');
       setShowModal(false);
@@ -271,7 +310,10 @@ export default function GastosPage() {
       load();
     } catch (e: any) {
       const message = getErrorMessage(e) || 'Error al guardar';
-      if (isSchemaCacheMissing(e, ['tipo_servicio', 'detalle_servicio', 'comprobante_url', 'comprobante_nombre'])) {
+      if (isSchemaCacheMissing(e, ['registrar_gasto_cuotas'])) {
+        setFaltaMigracion025(true);
+        toast.error('Aplicá la migración 025 en Supabase para registrar gastos en cuotas.');
+      } else if (isSchemaCacheMissing(e, ['tipo_servicio', 'detalle_servicio', 'comprobante_url', 'comprobante_nombre'])) {
         setFaltaMigracion022(true);
         toast.error('Faltan columnas de la migración 022 en Supabase. Aplicala y recargá el esquema antes de guardar gastos.');
       } else {
@@ -291,6 +333,54 @@ export default function GastosPage() {
     load();
   }
 
+  async function verDetalle(gasto: Gasto) {
+    if (!gasto.en_cuotas) { setDetalle(gasto); return; }
+    const [{ data: cs, error: ce }, { data: ps, error: pe }] = await Promise.all([
+      supabase.from('gasto_cuotas').select('*').eq('gasto_id', gasto.id).order('numero_cuota'),
+      supabase.from('gasto_pagos').select('*').eq('gasto_id', gasto.id).order('created_at', { ascending: false }),
+    ]);
+    if (ce || pe) { toast.error(getErrorMessage(ce || pe) || 'No se pudieron cargar las cuotas'); return; }
+    const { data: actual, error } = await supabase.from('gastos').select('saldo_pendiente, estado, fecha_vencimiento').eq('id', gasto.id).single();
+    if (error) { toast.error(getErrorMessage(error) || 'No se pudo cargar el gasto'); return; }
+    setDetalle({ ...gasto, ...actual, gasto_cuotas: cs as GastoCuota[], gasto_pagos: ps as GastoPago[] } as Gasto);
+  }
+
+  async function registrarPago() {
+    if (!pago || !detalle) return;
+    const monto = parseDecimal(pago.monto);
+    if (!pago.fecha || monto <= 0 || monto > Number(pago.cuota.monto) - Number(pago.cuota.monto_pagado)) {
+      toast.error('Ingresá una fecha y un monto válido para la cuota'); return;
+    }
+    setSaving(true);
+    try {
+      const { error } = await supabase.rpc('pagar_cuota_gasto', {
+        p_cuota_id: pago.cuota.id, p_monto: monto, p_fecha: pago.fecha,
+        p_medio: pago.medio, p_referencia: pago.referencia,
+      });
+      if (error) throw error;
+      toast.success('Pago registrado');
+      setPago(null);
+      await verDetalle(detalle);
+      load();
+    } catch (e) {
+      toast.error(getErrorMessage(e) || 'No se pudo registrar el pago');
+    } finally { setSaving(false); }
+  }
+
+  async function anularPago(item: GastoPago) {
+    if (!detalle || !window.confirm('¿Anular este pago y devolverlo al saldo pendiente?')) return;
+    setSaving(true);
+    try {
+      const { error } = await supabase.rpc('anular_pago_gasto', { p_pago_id: item.id });
+      if (error) throw error;
+      toast.success('Pago anulado');
+      await verDetalle(detalle);
+      load();
+    } catch (e) {
+      toast.error(getErrorMessage(e) || 'No se pudo anular el pago');
+    } finally { setSaving(false); }
+  }
+
   const filteredRaw = gastos.filter(g =>
     (g.categoria || g.titulo || '').toLowerCase().includes(search.toLowerCase())
   ).map(g => ({ ...g, proveedor_nombre: (g as any).proveedores?.nombre || '' }));
@@ -305,7 +395,7 @@ export default function GastosPage() {
       'Detalle del servicio': g.detalle_servicio || '',
       Proveedor: g.proveedor_nombre,
       Comprobante: g.referencia || g.comprobante_nombre || '',
-      Condición: g.condicion || 'debito',
+      Condición: g.en_cuotas ? 'En cuotas' : g.condicion === 'credito' ? 'Crédito sin plan' : 'Contado',
       Estado: g.estado || 'pagado',
       Moneda: g.moneda || 'GS',
       'Tipo de cambio': g.tipo_cambio ?? '',
@@ -331,6 +421,11 @@ export default function GastosPage() {
         {faltaMigracion022 && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
             Faltan columnas de la migración 022 (tipo de servicio, moneda o comprobante). Aplicá la migración en Supabase y recargá el esquema de la API.
+          </div>
+        )}
+        {faltaMigracion025 && !loading && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+            Para registrar gastos en cuotas, aplicá la migración 025 en Supabase.
           </div>
         )}
         <div className="flex flex-col sm:flex-row gap-3 justify-between items-start">
@@ -393,7 +488,7 @@ export default function GastosPage() {
                       </td>
                       <td className="table-cell text-sm">{(g as any).proveedores?.nombre || '-'}</td>
                       {!schemaCompatMode && <td className="table-cell text-sm">{(g as any).tasa_iva_ref ? `${(g as any).tasa_iva_ref.nombre} (${(g as any).tasa_iva_ref.porcentaje}%)` : '-'}</td>}
-                      {!schemaCompatMode && <td className="table-cell capitalize">{g.condicion || 'debito'}</td>}
+                      {!schemaCompatMode && <td className="table-cell">{g.en_cuotas ? 'En cuotas' : g.condicion === 'credito' ? 'Crédito sin plan' : 'Contado'}</td>}
                       {!schemaCompatMode && (
                         <td className="table-cell">
                           <span className={`badge ${estadoBadgeClass(g.estado || 'pagado')}`}>{g.estado || 'pagado'}</span>
@@ -401,7 +496,7 @@ export default function GastosPage() {
                       )}
                       <td className="table-cell font-bold text-red-500">{formatMonto(g.monto, (g as any).moneda || 'GS')} <span className="text-[10px] text-gray-400 font-normal">{(g as any).moneda || 'GS'}</span></td>
                       <td className="table-cell text-right">
-                        <button onClick={() => setDetalle(g)} className="p-1 text-gray-500 hover:text-gray-700" title="Ver ficha">
+                        <button onClick={() => verDetalle(g)} className="p-1 text-gray-500 hover:text-gray-700" title="Ver ficha">
                           <Eye className="w-4 h-4" />
                         </button>
                         <button onClick={() => openEdit(g)} className="p-1 text-blue-500 hover:text-blue-700" title="Editar gasto">
@@ -483,11 +578,11 @@ export default function GastosPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="label">Monto ({form.moneda === 'USD' ? 'USD' : 'Gs.'}) *</label>
-                  <input type="text" inputMode="decimal" className="input" placeholder={form.moneda === 'USD' ? '0.00' : '0'} value={form.monto} onChange={e => setForm(f => ({ ...f, monto: sanitizeDecimalInput(e.target.value, decimalesMoneda(form.moneda)) }))} />
+                  <input type="text" inputMode="decimal" className="input" disabled={!!editando?.en_cuotas} placeholder={form.moneda === 'USD' ? '0.00' : '0'} value={form.monto} onChange={e => setForm(f => ({ ...f, monto: sanitizeDecimalInput(e.target.value, decimalesMoneda(form.moneda)) }))} />
                 </div>
                 <div>
                   <label className="label">Moneda</label>
-                  <select className="input" value={form.moneda} disabled={schemaCompatMode} onChange={e => { const m = e.target.value as 'GS' | 'USD'; setForm(f => ({ ...f, moneda: m, monto: sanitizeDecimalInput(f.monto, decimalesMoneda(m)) })); }}>
+                  <select className="input" value={form.moneda} disabled={schemaCompatMode || !!editando?.en_cuotas} onChange={e => { const m = e.target.value as 'GS' | 'USD'; setForm(f => ({ ...f, moneda: m, monto: sanitizeDecimalInput(f.monto, decimalesMoneda(m)) })); }}>
                     <option value="GS">Guaraníes (GS)</option>
                     <option value="USD">Dólares (USD)</option>
                   </select>
@@ -506,10 +601,10 @@ export default function GastosPage() {
               <div className="grid grid-cols-2 gap-3">
                 {!schemaCompatMode && (
                   <div>
-                    <label className="label">Condición</label>
-                    <select className="input" value={form.condicion} onChange={e => setForm(f => ({ ...f, condicion: e.target.value as 'debito' | 'credito' }))}>
-                      <option value="debito">Débito (pagado)</option>
-                      <option value="credito">Crédito (a pagar)</option>
+                    <label className="label">Condición de pago</label>
+                    <select className="input" disabled={!!editando} value={form.condicion} onChange={e => setForm(f => ({ ...f, condicion: e.target.value as 'debito' | 'credito' }))}>
+                      <option value="debito">Contado</option>
+                      <option value="credito">{editando && !editando.en_cuotas ? 'Crédito sin plan (histórico)' : 'En cuotas'}</option>
                     </select>
                   </div>
                 )}
@@ -525,7 +620,7 @@ export default function GastosPage() {
                 {!schemaCompatMode && form.condicion === 'credito' ? (
                   <div>
                     <label className="label">Medio de pago</label>
-                    <input className="input bg-gray-100 dark:bg-gray-800" value="A crédito (sin pago inmediato)" readOnly />
+                    <input className="input bg-gray-100 dark:bg-gray-800" value="Se registra al pagar la cuota" readOnly />
                   </div>
                 ) : (
                   <div>
@@ -560,21 +655,36 @@ export default function GastosPage() {
                     </div>
                   </>
                 )}
-                {!schemaCompatMode && form.condicion === 'credito' && (
+                {!schemaCompatMode && form.condicion === 'credito' && !editando?.en_cuotas && (
                   <div>
-                    <label className="label">Fecha vencimiento</label>
+                    <label className="label">{editando ? 'Fecha de vencimiento' : 'Primer vencimiento *'}</label>
                     <input type="date" className="input" value={form.fecha_vencimiento} onChange={e => setForm(f => ({ ...f, fecha_vencimiento: e.target.value }))} />
                   </div>
                 )}
               </div>
+              {form.condicion === 'credito' && !editando && (
+                    <div className="space-y-3 rounded-lg border p-3">
+                      <div className="grid grid-cols-2 gap-3">
+                        <div><label className="label">Cantidad de cuotas (1–48)</label><input className="input" inputMode="numeric" value={cantidadCuotas} onChange={e => setCantidadCuotas(toDigitsOnly(e.target.value))} /></div>
+                        <div><label className="label">Intervalo en días</label><input className="input" inputMode="numeric" value={intervaloCuotas} onChange={e => setIntervaloCuotas(toDigitsOnly(e.target.value))} /></div>
+                      </div>
+                      <button type="button" className="btn-secondary text-sm" onClick={generarCuotas}>Generar cuotas</button>
+                      {cuotas.map((c, i) => <div key={i} className="grid grid-cols-[auto_1fr_1fr] items-end gap-2">
+                        <span className="pb-2 text-sm">#{i + 1}</span>
+                        <div><label className="label text-xs">Vencimiento</label><input type="date" className="input" value={c.fecha_vencimiento} onChange={e => setCuotas(prev => prev.map((q, idx) => idx === i ? { ...q, fecha_vencimiento: e.target.value } : q))} /></div>
+                        <div><label className="label text-xs">Monto ({form.moneda})</label><input className="input" inputMode="decimal" value={c.monto} onChange={e => setCuotas(prev => prev.map((q, idx) => idx === i ? { ...q, monto: sanitizeDecimalInput(e.target.value, decimalesMoneda(form.moneda)) } : q))} /></div>
+                      </div>)}
+                      {cuotas.length > 0 && <p className="text-sm">Total cuotas: {formatMontoMoneda(cuotas.reduce((s, c) => s + parseDecimal(c.monto), 0), form.moneda)}</p>}
+                    </div>
+              )}
               <div>
                 <label className="label">Proveedor *</label>
                 <div className="flex gap-2">
-                  <select className="input flex-1" value={form.proveedor_id} onChange={e => setForm(f => ({ ...f, proveedor_id: e.target.value }))}>
+                  <select className="input flex-1" disabled={!!editando?.en_cuotas} value={form.proveedor_id} onChange={e => setForm(f => ({ ...f, proveedor_id: e.target.value }))}>
                     <option value="">Seleccionar proveedor</option>
                     {proveedores.map(p => <option key={p.id} value={p.id}>{p.nombre}</option>)}
                   </select>
-                  <button type="button" onClick={() => setShowProvRapido(true)} className="btn-secondary flex items-center gap-1 shrink-0 text-xs"><UserPlus className="w-4 h-4" /> Nuevo</button>
+                  <button type="button" disabled={!!editando?.en_cuotas} onClick={() => setShowProvRapido(true)} className="btn-secondary flex items-center gap-1 shrink-0 text-xs"><UserPlus className="w-4 h-4" /> Nuevo</button>
                 </div>
               </div>
               <ComprobanteInput
@@ -625,7 +735,7 @@ export default function GastosPage() {
                 ['Moneda', (detalle as any).moneda || 'GS'],
                 ['Monto', formatMontoMoneda(detalle.monto, (detalle as any).moneda)],
                 ['Tipo de cambio', (detalle as any).tipo_cambio ? String((detalle as any).tipo_cambio) : '-'],
-                ['Condición', detalle.condicion || 'debito'],
+                ['Condición', detalle.en_cuotas ? 'En cuotas' : detalle.condicion === 'credito' ? 'Crédito sin plan' : 'Contado'],
                 ['Estado', detalle.estado || 'pagado'],
                 ['Saldo pendiente', detalle.saldo_pendiente != null ? formatMontoMoneda(detalle.saldo_pendiente, (detalle as any).moneda) : '-'],
                 ['Comprobante', detalle.referencia || detalle.comprobante_nombre || '-'],
@@ -639,6 +749,38 @@ export default function GastosPage() {
                 </div>
               )}
             </dl>
+            {detalle.en_cuotas && (
+              <div className="space-y-4 px-5 pb-5 text-sm">
+                <h3 className="font-semibold">Cuotas</h3>
+                {(detalle.gasto_cuotas || []).map(c => {
+                  const saldo = roundMoneda(Number(c.monto) - Number(c.monto_pagado), detalle.moneda);
+                  const estado = saldo <= 0 ? 'Pagada' : c.fecha_vencimiento < hoyISO() ? 'Vencida' : 'Pendiente';
+                  return <div key={c.id} className="flex flex-wrap items-center justify-between gap-2 border-b pb-2">
+                    <span>#{c.numero_cuota} · {formatDate(c.fecha_vencimiento)} · {estado}<br />
+                      <span className="text-gray-500">Total {formatMontoMoneda(c.monto, detalle.moneda)} · Saldo {formatMontoMoneda(saldo, detalle.moneda)}</span>
+                    </span>
+                    {saldo > 0 && <button className="btn-secondary text-xs" onClick={() => setPago({ cuota: c, monto: String(saldo), fecha: hoyISO(), medio: 'efectivo', referencia: '' })}>Registrar pago</button>}
+                  </div>;
+                })}
+                {(detalle.gasto_pagos || []).length > 0 && <h3 className="font-semibold">Pagos</h3>}
+                {(detalle.gasto_pagos || []).map(p => <div key={p.id} className="flex items-center justify-between gap-2 border-b pb-2">
+                  <span>{formatDate(p.fecha)} · {formatMontoMoneda(p.monto, p.moneda)} · {p.medio_pago} · {p.estado}</span>
+                  {p.estado === 'registrado' && <button disabled={saving} className="text-red-600" onClick={() => anularPago(p)}>Anular</button>}
+                </div>)}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+      {pago && detalle && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[60] p-4">
+          <div className="card w-full max-w-md p-5 space-y-3">
+            <h2 className="section-title">Pago de cuota #{pago.cuota.numero_cuota}</h2>
+            <div><label className="label">Monto ({detalle.moneda || 'GS'})</label><input className="input" inputMode="decimal" value={pago.monto} onChange={e => setPago({ ...pago, monto: sanitizeDecimalInput(e.target.value, decimalesMoneda(detalle.moneda)) })} /></div>
+            <div><label className="label">Fecha</label><input className="input" type="date" value={pago.fecha} onChange={e => setPago({ ...pago, fecha: e.target.value })} /></div>
+            <div><label className="label">Medio de pago</label><select className="input" value={pago.medio} onChange={e => setPago({ ...pago, medio: e.target.value })}>{MEDIOS_PAGO.map(m => <option key={m} value={m}>{m}</option>)}</select></div>
+            <div><label className="label">Referencia</label><input className="input" value={pago.referencia} onChange={e => setPago({ ...pago, referencia: e.target.value })} /></div>
+            <div className="flex justify-end gap-2"><button className="btn-secondary" onClick={() => setPago(null)}>Cancelar</button><button className="btn-primary" disabled={saving} onClick={registrarPago}>Guardar pago</button></div>
           </div>
         </div>
       )}
