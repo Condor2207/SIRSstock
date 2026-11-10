@@ -40,6 +40,7 @@ export default function GastosPage() {
   const [schemaCompatMode, setSchemaCompatMode] = useState(false);
   const compatToastShown = useRef(false);
   const [tiposServicio, setTiposServicio] = useState<string[]>([]);
+  const [faltaMigracion022, setFaltaMigracion022] = useState(false);
   const [comprobanteFile, setComprobanteFile] = useState<File | null>(null);
   const [showProvRapido, setShowProvRapido] = useState(false);
   const [detalle, setDetalle] = useState<Gasto | null>(null);
@@ -63,6 +64,7 @@ export default function GastosPage() {
     let data: any[] | null = advancedRes.data;
     let error: any = advancedRes.error;
     if (error && isSchemaCacheMissing(error, ['tipo_servicio', 'detalle_servicio', 'comprobante_url', 'comprobante_nombre'])) {
+      setFaltaMigracion022(true);
       const legacyRes = await supabase
         .from('gastos')
         .select(GASTOS_SELECT_LEGACY)
@@ -70,6 +72,18 @@ export default function GastosPage() {
         .limit(100);
       data = legacyRes.data;
       error = legacyRes.error;
+      if (error && isSchemaCacheMissing(error, ['moneda', 'tipo_cambio'])) {
+        setSchemaCompatMode(true);
+        const baseRes = await supabase
+          .from('gastos')
+          .select(GASTOS_SELECT_BASE)
+          .order('fecha', { ascending: false })
+          .limit(100);
+        data = baseRes.data;
+        error = baseRes.error;
+      }
+    } else if (!error) {
+      setFaltaMigracion022(false);
     }
     if (error && isSchemaCacheMissing(error, ['gastos', 'estado', 'saldo_pendiente', 'condicion', 'tasas_iva'])) {
       setSchemaCompatMode(true);
@@ -253,7 +267,13 @@ export default function GastosPage() {
       resetForm();
       load();
     } catch (e: any) {
-      toast.error(getErrorMessage(e) || 'Error al guardar');
+      const message = getErrorMessage(e) || 'Error al guardar';
+      if (/gastos\.(tipo_servicio|detalle_servicio|comprobante_url|comprobante_nombre)|column .* does not exist/i.test(message)) {
+        setFaltaMigracion022(true);
+        toast.error('Faltan columnas de la migración 022 en Supabase. Aplicala y recargá el esquema antes de guardar gastos.');
+      } else {
+        toast.error(message);
+      }
     } finally {
       setSaving(false);
     }
@@ -303,6 +323,11 @@ export default function GastosPage() {
         {schemaCompatMode && (
           <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
             Modo compatible activo: faltan columnas avanzadas de gastos en la base de datos. Podés seguir usando el módulo con funciones reducidas hasta ejecutar las migraciones pendientes.
+          </div>
+        )}
+        {faltaMigracion022 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800 dark:border-amber-900/60 dark:bg-amber-950/30 dark:text-amber-200">
+            Faltan columnas de la migración 022 (tipo de servicio, moneda o comprobante). Aplicá la migración en Supabase y recargá el esquema de la API.
           </div>
         )}
         <div className="flex flex-col sm:flex-row gap-3 justify-between items-start">

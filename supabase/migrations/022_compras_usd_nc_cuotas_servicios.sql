@@ -246,3 +246,5 @@ BEGIN
 EXCEPTION WHEN OTHERS THEN
   RAISE NOTICE 'No se pudo configurar el bucket "comprobantes" (%). Crearlo manualmente en Supabase Storage.', SQLERRM;
 END $$;
+
+NOTIFY pgrst, 'reload schema';
