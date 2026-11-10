@@ -31,6 +31,8 @@ export interface Producto {
   stock_actual: number;
   stock_minimo: number;
   control_lote: boolean;
+  tipo_control?: 'lote_vencimiento' | 'solo_lote' | 'solo_vencimiento' | 'generico';
+  permite_decimales?: boolean;
   activo: boolean;
   created_at: string;
   updated_at: string;
@@ -100,6 +102,7 @@ export interface Proveedor {
   condicion_pago?: string;
   condicion_venta_id?: string;
   condicion_venta?: CondicionVenta;
+  datos_fiscales?: string;
   activo: boolean;
   created_at: string;
 }
@@ -224,6 +227,11 @@ export interface Compra {
   condicion_pago: 'contado' | 'credito';
   numero_remito?: string;
   numero_factura?: string;
+  moneda?: 'GS' | 'USD';
+  tipo_cambio?: number | null;
+  iva_total?: number;
+  comprobante_url?: string | null;
+  comprobante_nombre?: string | null;
   subtotal: number;
   total: number;
   saldo_pendiente: number;
@@ -235,6 +243,8 @@ export interface Compra {
   created_by?: string;
   created_at: string;
   compra_items?: CompraItem[];
+  compra_cuotas?: CompraCuota[];
+  compra_pagos?: CompraPago[];
 }
 
 export interface CompraItem {
@@ -248,6 +258,9 @@ export interface CompraItem {
   descripcion: string;
   cantidad: number;
   precio_unitario: number;
+  tipo_control?: 'lote_vencimiento' | 'solo_lote' | 'solo_vencimiento' | 'generico';
+  tasa_iva_porcentaje?: number;
+  monto_iva?: number;
   subtotal: number;
   created_at: string;
 }
@@ -269,8 +282,38 @@ export interface Gasto {
   tasa_iva_id?: string;
   tasa_iva_ref?: TasaIva;
   referencia?: string;
+  moneda?: 'GS' | 'USD';
+  tipo_cambio?: number | null;
+  tipo_servicio?: string | null;
+  detalle_servicio?: string | null;
+  comprobante_url?: string | null;
+  comprobante_nombre?: string | null;
+  en_cuotas?: boolean;
+  gasto_cuotas?: GastoCuota[];
+  gasto_pagos?: GastoPago[];
   created_by?: string;
   created_at: string;
+}
+
+export interface GastoCuota {
+  id: string;
+  gasto_id: string;
+  numero_cuota: number;
+  fecha_vencimiento: string;
+  monto: number;
+  monto_pagado: number;
+}
+
+export interface GastoPago {
+  id: string;
+  gasto_id: string;
+  cuota_id: string;
+  fecha: string;
+  monto: number;
+  moneda: 'GS' | 'USD';
+  medio_pago: string;
+  referencia: string | null;
+  estado: 'registrado' | 'anulado';
 }
 
 export interface MovimientoStock {
@@ -441,7 +484,46 @@ export interface CompraCuota {
   fecha_vencimiento: string;
   monto: number;
   monto_pagado: number;
-  estado: 'pendiente' | 'pagada' | 'vencida';
+  estado: 'pendiente' | 'pagada' | 'vencida' | 'anulada';
+  fecha_pago?: string | null;
+  created_at: string;
+}
+
+export interface CompraPago {
+  id: string;
+  compra_id: string;
+  cuota_id?: string | null;
+  fecha: string;
+  monto: number;
+  moneda: 'GS' | 'USD';
+  medio_pago: string;
+  referencia?: string | null;
+  notas?: string | null;
+  estado: 'registrado' | 'anulado';
+  created_at: string;
+}
+
+export interface NotaCreditoCompra {
+  id: string;
+  numero: string;
+  numero_comprobante?: string | null;
+  comprobante_url?: string | null;
+  proveedor_id: string;
+  proveedores?: { nombre: string } | null;
+  compra_id?: string | null;
+  compras?: { numero: string; numero_factura?: string | null } | null;
+  fecha_emision: string;
+  fecha_registro: string;
+  moneda: 'GS' | 'USD';
+  tipo_cambio?: number | null;
+  motivo: 'devolucion' | 'descuento' | 'error_facturacion' | 'ajuste' | 'otro';
+  afecta_stock: boolean;
+  subtotal: number;
+  iva_total: number;
+  total: number;
+  monto_aplicado: number;
+  estado: 'vigente' | 'anulada';
+  notas?: string | null;
   created_at: string;
 }
 

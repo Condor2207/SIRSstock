@@ -5,7 +5,8 @@ import { useRouter } from 'next/navigation';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, calcularCuotas, formatDate, toDigitsOnly, toInteger, esNumeroFacturaValido, maskNumeroFactura, escapeHtml, isSchemaCacheMissing } from '@/lib/utils';
+import { formatCurrency, calcularCuotas, formatDate, toDigitsOnly, toInteger, esNumeroFacturaValido, maskNumeroFactura, escapeHtml, isSchemaCacheMissing, roundTo, sanitizeDecimalInput, parseDecimal, formatCantidad, DECIMALES_CANTIDAD } from '@/lib/utils';
+import { moverStock } from '@/lib/stock';
 import { Plus, Trash2, ShoppingCart, Loader2, ArrowLeft, Search, Printer, CheckCircle } from 'lucide-react';
 import toast from 'react-hot-toast';
 import Link from 'next/link';
@@ -123,7 +124,7 @@ export default function NuevaVentaPage() {
       const prod = productos.find(p => p.id === item.producto_id);
       if (!prod) return item;
       const { precio, sinPrecio } = precioDeLista(prod, lista);
-      return { ...item, precio_unitario: precio, subtotal: item.cantidad * precio, sin_precio_lista: !!lista && sinPrecio };
+      return { ...item, precio_unitario: precio, subtotal: roundTo(item.cantidad * precio, 0), sin_precio_lista: !!lista && sinPrecio };
     }));
   }
 
@@ -187,15 +188,19 @@ export default function NuevaVentaPage() {
         item.precio_unitario = Math.max(0, toInteger(valor, 0));
         item.precio_manual = true;
         item.sin_precio_lista = false;
-        item.subtotal = item.cantidad * item.precio_unitario;
+        item.subtotal = roundTo(item.cantidad * item.precio_unitario, 0);
       }
       if (campo === 'tasa_iva_porcentaje') {
         item.tasa_iva_porcentaje = Number(valor);
       }
       if (campo === 'cantidad') {
-        item.cantidad = Math.max(1, toInteger(item.cantidad, 1));
+        const prodItem = productos.find(p => p.id === item.producto_id);
+        const decimales = (prodItem as any)?.permite_decimales === false ? 0 : DECIMALES_CANTIDAD;
+        const texto = sanitizeDecimalInput(String(valor), decimales);
+        (item as any).cantidad_txt = texto;
+        item.cantidad = roundTo(parseDecimal(texto), decimales);
         item.precio_unitario = toInteger(item.precio_unitario, 0);
-        item.subtotal = item.cantidad * item.precio_unitario;
+        item.subtotal = roundTo(item.cantidad * item.precio_unitario, 0);
       }
       updated[idx] = item;
       return updated;
@@ -234,12 +239,14 @@ export default function NuevaVentaPage() {
       toast('⚠️ El cliente supera su límite de crédito. Disponible: ' + formatCurrency(creditoDisponible), { icon: '⚠️', style: { background: '#fef9c3', color: '#854d0e' } });
       // No bloqueamos, solo advertimos
     }
-    // Validar stock
+    // Validar cantidades y stock
     for (const item of items) {
       const prod = productos.find(p => p.id === item.producto_id);
+      if (!(item.cantidad > 0)) { toast.error(`La cantidad de "${item.producto_nombre}" debe ser mayor a 0`); return; }
+      if ((prod as any)?.permite_decimales === false && !Number.isInteger(item.cantidad)) { toast.error(`"${item.producto_nombre}" no admite cantidades decimales`); return; }
       if (item.es_servicio) continue;
       if (prod && item.cantidad > prod.stock_actual) {
-        toast.error(`Stock insuficiente para ${prod.nombre}. Disponible: ${prod.stock_actual}`);
+        toast.error(`Stock insuficiente para ${prod.nombre}. Disponible: ${formatCantidad(prod.stock_actual)}`);
         return;
       }
       if (item.lote_id && prod?.lotes) {
@@ -355,26 +362,9 @@ export default function NuevaVentaPage() {
       // Actualizar stock por producto y lote
       for (const item of items) {
         if (item.es_servicio) continue; // Los servicios no descuentan stock
-        // Producto
-        const prod = productos.find(p => p.id === item.producto_id);
-        if (prod) {
-          await supabase.from('productos').update({ stock_actual: prod.stock_actual - item.cantidad }).eq('id', item.producto_id);
-        }
-        // Lote
-        if (item.lote_id && prod?.lotes) {
-          const lote = prod.lotes.find(l => l.id === item.lote_id);
-          if (lote) {
-            await supabase.from('lotes').update({ stock_actual: lote.stock_actual - item.cantidad }).eq('id', item.lote_id);
-          }
-        }
-        // Movimiento de stock
-        await supabase.from('movimientos_stock').insert({
-          producto_id: item.producto_id,
-          lote_id: item.lote_id || null,
-          tipo: 'salida',
-          cantidad: -item.cantidad,
-          referencia_tipo: 'venta',
-          referencia_id: venta.id,
+        await moverStock(supabase, {
+          productoId: item.producto_id, delta: -item.cantidad, tipo: 'salida', referenciaTipo: 'venta',
+          referenciaId: venta.id, loteId: item.lote_id || null,
         });
       }
 
@@ -431,7 +421,7 @@ export default function NuevaVentaPage() {
       (item.es_servicio ? ' <span style="font-size:9px;border:1px solid #6366f1;color:#4338ca;padding:0 4px;border-radius:3px">SERVICIO</span>' : '') +
       (item.descripcion_producto ? '<div style="font-size:10px;color:#555">' + escapeHtml(item.descripcion_producto) + '</div>' : '') + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">' + (item.tasa_iva_porcentaje === 0 ? 'Exento' : (item.tasa_iva_porcentaje ?? 10) + '%') + '</td>' +
-      '<td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">' + item.cantidad + '</td>' +
+      '<td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:center">' + formatCantidad(item.cantidad) + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right">' + formatCurrency(item.precio_unitario) + '</td>' +
       '<td style="padding:6px 8px;border-bottom:1px solid #eee;text-align:right;font-weight:bold">' + formatCurrency(item.subtotal) + '</td>' +
       '</tr>'
@@ -506,7 +496,7 @@ export default function NuevaVentaPage() {
         '<div style="margin:4px 0">' +
         '<div style="font-weight:bold;font-size:11px">' + escapeHtml(item.producto_nombre.split(' - ').slice(1).join(' - ') || item.producto_nombre) + (item.es_servicio ? ' [SERVICIO]' : '') + '</div>' +
         '<div style="display:flex;justify-content:space-between;font-size:11px">' +
-        '<span>' + item.cantidad + ' x ' + formatCurrency(item.precio_unitario) + '</span>' +
+        '<span>' + formatCantidad(item.cantidad) + ' x ' + formatCurrency(item.precio_unitario) + '</span>' +
         '<span style="font-weight:bold">' + formatCurrency(item.subtotal) + '</span>' +
         '</div></div>'
       ).join('');
@@ -692,7 +682,7 @@ export default function NuevaVentaPage() {
                             <div className="font-semibold text-emerald-600">{formatCurrency(precioDeLista(p, listaId).precio)}</div>
                             {p.moneda_venta && p.moneda_venta !== 'PYG' && <div className="text-xs text-gray-400">cotizado en {p.moneda_venta}</div>}
                             <div className="text-xs text-gray-400">
-                              {(p as any).es_servicio ? 'Servicio' : `Stock: ${p.stock_actual}`} · IVA {toInteger((p as any).tasa_iva_ref?.porcentaje ?? 10, 10)}%
+                              {(p as any).es_servicio ? 'Servicio' : `Stock: ${formatCantidad(p.stock_actual)}`} · IVA {toInteger((p as any).tasa_iva_ref?.porcentaje ?? 10, 10)}%
                             </div>
                           </div>
                         </button>
@@ -732,10 +722,10 @@ export default function NuevaVentaPage() {
                         <div>
                           <label className="label text-xs">Cantidad</label>
                           <input
-                            type="number" min="1" step="1"
+                            type="text" inputMode="decimal"
                             className="input py-1.5"
-                            value={item.cantidad}
-                            onChange={e => actualizarItem(idx, 'cantidad', Math.max(1, parseInt(e.target.value) || 1))}
+                            value={(item as any).cantidad_txt ?? String(item.cantidad)}
+                            onChange={e => actualizarItem(idx, 'cantidad', e.target.value)}
                           />
                         </div>
                         <div>
@@ -766,7 +756,7 @@ export default function NuevaVentaPage() {
                               <option value="">Sin lote</option>
                               {item.lotes_disponibles.map(l => (
                                 <option key={l.id} value={l.id}>
-                                  {l.numero_lote} (Stock:{l.stock_actual}) {l.fecha_vencimiento ? `— vence ${formatDate(l.fecha_vencimiento)}` : ''}
+                                  {l.numero_lote} (Stock:{formatCantidad(l.stock_actual)}) {l.fecha_vencimiento ? `— vence ${formatDate(l.fecha_vencimiento)}` : ''}
                                 </option>
                               ))}
                             </select>

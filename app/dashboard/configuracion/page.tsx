@@ -17,6 +17,7 @@ const configCards = [
   { href: '/dashboard/configuracion/condiciones', icon: Handshake, label: 'Condiciones de Venta', desc: 'Contado, 30/60/90 días, cuotas...', color: 'yellow' },
   { href: '/dashboard/configuracion/vendedores', icon: UserCheck, label: 'Vendedores', desc: 'Equipo comercial y comisiones', color: 'cyan' },
   { href: '/dashboard/configuracion/bancos', icon: Landmark, label: 'Bancos', desc: 'Entidades bancarias para cheques', color: 'indigo' },
+  { href: '/dashboard/configuracion/tipos-servicio', icon: List, label: 'Tipos de servicio (gastos)', desc: 'Flete, combustible, alquiler, honorarios, etc.', color: 'pink' },
   { href: '/dashboard/configuracion/monedas', icon: Coins, label: 'Monedas y Tipo de Cambio', desc: 'Gs., USD y conversor interno del sistema', color: 'emerald' },
 ];
 

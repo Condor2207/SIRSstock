@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
-import { estadoBadgeClass, estadoDeuda, formatNumeroFactura, formatMonto, formatCurrency, formatDate, formatNumber, diasHastaVencimiento, estadoVencimiento, getErrorMessage, isSchemaCacheMissing } from '@/lib/utils';
+import { estadoBadgeClass, estadoDeuda, formatNumeroFactura, formatMonto, formatCurrency, formatDate, formatNumber, diasHastaVencimiento, estadoVencimiento, getErrorMessage, isSchemaCacheMissing, formatMontoMoneda, estadoEfectivoCuota, roundMoneda } from '@/lib/utils';
 import { BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, LineChart, Line } from 'recharts';
 import { Download, BarChart2, Package, Users, AlertTriangle, Loader2, CreditCard, BadgePercent, Receipt, FileText, Layers } from 'lucide-react';
 import toast from 'react-hot-toast';
@@ -25,9 +25,16 @@ export default function ReportesPage() {
   const [cobrarData, setCobrarData] = useState<any[]>([]);
   const [vencimientosData, setVencimientosData] = useState<any[]>([]);
   const [pagarData, setPagarData] = useState<any[]>([]);
+  const [pagarNc, setPagarNc] = useState<any[]>([]);
   const [comisionesData, setComisionesData] = useState<any[]>([]);
   const [gastosCreditoData, setGastosCreditoData] = useState<any[]>([]);
   const [gastosUnificadosData, setGastosUnificadosData] = useState<any[]>([]);
+
+  const totalesPorMoneda = (rows: any[]) => {
+    const gs = rows.filter(r => (r.moneda || 'GS') !== 'USD').reduce((s, r) => s + Number(r.saldo_pendiente ?? r.monto ?? 0), 0);
+    const usd = rows.filter(r => r.moneda === 'USD').reduce((s, r) => s + Number(r.saldo_pendiente ?? r.monto ?? 0), 0);
+    return usd > 0 ? `${formatMontoMoneda(gs, 'GS')} + ${formatMontoMoneda(usd, 'USD')}` : formatMontoMoneda(gs, 'GS');
+  };
 
   useEffect(() => { loadData(); }, [tab, desde, hasta]);
 
@@ -105,12 +112,25 @@ export default function ReportesPage() {
           .order('fecha_vencimiento');
         setVencimientosData(data || []);
       } else if (tab === 'pagar') {
-        const { data } = await supabase
+        let { data, error: pagarErr } = await (supabase as any)
           .from('compras')
-          .select('numero, fecha, total, condicion_pago, proveedor_id, proveedores(nombre), compra_cuotas(numero_cuota, fecha_vencimiento, monto, estado)')
+          .select('numero, numero_factura, fecha, total, saldo_pendiente, moneda, tipo_cambio, condicion_pago, proveedor_id, proveedores(nombre), compra_cuotas(numero_cuota, fecha_vencimiento, monto, monto_pagado, estado)')
           .gt('saldo_pendiente', 0)
           .order('fecha', { ascending: false });
+        if (pagarErr) {
+          const legacy = await supabase
+            .from('compras')
+            .select('numero, fecha, total, saldo_pendiente, condicion_pago, proveedor_id, proveedores(nombre), compra_cuotas(numero_cuota, fecha_vencimiento, monto, monto_pagado, estado)')
+            .gt('saldo_pendiente', 0)
+            .order('fecha', { ascending: false });
+          data = legacy.data as any;
+        }
         setPagarData(data || []);
+        const { data: ncData } = await supabase
+          .from('notas_credito_compra')
+          .select('numero, moneda, total, monto_aplicado, proveedor_id, proveedores(nombre)')
+          .eq('estado', 'vigente');
+        setPagarNc(((ncData || []) as any[]).filter(n => Number(n.total) - Number(n.monto_aplicado) > 0));
       } else if (tab === 'comisiones') {
         const { data } = await supabase
           .from('comisiones')
@@ -151,7 +171,7 @@ export default function ReportesPage() {
         // Compras pendientes de pago
         const { data: comprasData } = await supabase
           .from('compras')
-          .select('numero, fecha, total, saldo_pendiente, proveedores(nombre), compra_cuotas(numero_cuota, fecha_vencimiento, monto, estado)')
+          .select('numero, fecha, total, saldo_pendiente, moneda, proveedores(nombre), compra_cuotas(numero_cuota, fecha_vencimiento, monto, estado)')
           .gt('saldo_pendiente', 0)
           .order('fecha', { ascending: false });
         const comprasRows = (comprasData || []).map((c: any) => {
@@ -163,6 +183,7 @@ export default function ReportesPage() {
             proveedor: c.proveedores?.nombre || '—',
             fecha: c.fecha,
             monto: c.total,
+            moneda: c.moneda || 'GS',
             saldo_pendiente: c.saldo_pendiente,
             fecha_vencimiento: proxVenc?.fecha_vencimiento || null,
             categoria: 'Compra a crédito',
@@ -173,9 +194,16 @@ export default function ReportesPage() {
         try {
           let { data: gastosData, error: gastosError } = (await supabase
             .from('gastos')
-            .select('titulo, fecha, monto, moneda, saldo_pendiente, fecha_vencimiento, categoria, proveedores(nombre)')
+            .select('titulo, fecha, monto, moneda, saldo_pendiente, fecha_vencimiento, categoria, tipo_servicio, detalle_servicio, proveedores(nombre)')
             .eq('condicion', 'credito')
             .order('fecha_vencimiento', { ascending: true })) as { data: any[] | null; error: any };
+          if (gastosError && isSchemaCacheMissing(gastosError, ['tipo_servicio', 'detalle_servicio'])) {
+            ({ data: gastosData, error: gastosError } = await supabase
+              .from('gastos')
+              .select('titulo, fecha, monto, moneda, saldo_pendiente, fecha_vencimiento, categoria, proveedores(nombre)')
+              .eq('condicion', 'credito')
+              .order('fecha_vencimiento', { ascending: true }));
+          }
           if (gastosError && isSchemaCacheMissing(gastosError, ['moneda'])) {
             ({ data: gastosData, error: gastosError } = await supabase
               .from('gastos')
@@ -194,6 +222,8 @@ export default function ReportesPage() {
               saldo_pendiente: g.saldo_pendiente ?? g.monto,
               fecha_vencimiento: g.fecha_vencimiento || null,
               categoria: g.categoria || 'Gasto',
+              tipo_servicio: g.tipo_servicio || '',
+              detalle_servicio: g.detalle_servicio || '',
             }));
           }
         } catch {
@@ -243,7 +273,13 @@ export default function ReportesPage() {
     } else if (tab === 'pagar') {
       filename = 'cuentas_pagar';
       sheetName = 'Cuentas a pagar';
-      data = pagarData.map(p => ({ Compra: p.numero, Proveedor: p.proveedores?.nombre || '', Fecha: p.fecha, Total: p.total }));
+      data = pagarData.flatMap(p => {
+        const mon = p.moneda || 'GS';
+        const base = { Compra: p.numero, Comprobante: p.numero_factura || '', Proveedor: p.proveedores?.nombre || '', Fecha: p.fecha, Moneda: mon, 'Total factura': p.total, Pagado: roundMoneda(Number(p.total) - Number(p.saldo_pendiente), mon), 'Saldo pendiente': p.saldo_pendiente };
+        const cuotas = (p.compra_cuotas || []).slice().sort((a: any, b: any) => a.numero_cuota - b.numero_cuota);
+        if (cuotas.length === 0) return [{ ...base, Cuota: '', 'Vencimiento cuota': '', 'Monto cuota': '', 'Pagado cuota': '', 'Estado cuota': '' }];
+        return cuotas.map((c: any) => ({ ...base, Cuota: c.numero_cuota, 'Vencimiento cuota': c.fecha_vencimiento, 'Monto cuota': c.monto, 'Pagado cuota': c.monto_pagado, 'Estado cuota': estadoEfectivoCuota(c) }));
+      });
     } else if (tab === 'comisiones') {
       filename = 'comisiones_pendientes';
       sheetName = 'Comisiones';
@@ -259,7 +295,7 @@ export default function ReportesPage() {
     } else if (tab === 'gastos_unificados') {
       filename = 'gastos_unificados';
       sheetName = 'Gastos Unificados';
-      data = gastosUnificadosData.map(r => ({ Origen: r.origen, Concepto: r.titulo, Proveedor: r.proveedor, Categoría: r.categoria, Fecha: r.fecha, Moneda: r.moneda || 'GS', Monto: r.monto, 'Saldo pendiente': r.saldo_pendiente, Vencimiento: r.fecha_vencimiento || '' }));
+      data = gastosUnificadosData.map(r => ({ Origen: r.origen, Concepto: r.titulo, Proveedor: r.proveedor, Categoría: r.categoria, 'Tipo de servicio': r.tipo_servicio || '', 'Detalle del servicio': r.detalle_servicio || '', Fecha: r.fecha, Moneda: r.moneda || 'GS', Monto: r.monto, 'Saldo pendiente': r.saldo_pendiente, Vencimiento: r.fecha_vencimiento || '' }));
     }
 
     if (data.length === 0) { toast.error('Sin datos para exportar'); return; }
@@ -475,44 +511,78 @@ export default function ReportesPage() {
             {/* CUENTAS A PAGAR */}
             {tab === 'pagar' && (
               <div className="space-y-4">
-                {pagarData.length === 0 ? (
+                {pagarData.length === 0 && pagarNc.length === 0 ? (
                   <div className="card p-12 text-center text-gray-400">No hay compras con saldo pendiente</div>
                 ) : (
-                  <div className="card overflow-hidden">
-                    <table className="w-full">
-                      <thead className="bg-gray-50 dark:bg-gray-800/50">
-                        <tr>
-                          <th className="table-header">Compra</th>
-                          <th className="table-header">Proveedor</th>
-                          <th className="table-header">Fecha</th>
-                          <th className="table-header">Total</th>
-                          <th className="table-header">Cuotas pendientes</th>
-                        </tr>
-                      </thead>
-                      <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
-                        {pagarData.map((p, i) => {
-                          const cuotasPend = (p.compra_cuotas || []).filter((c: any) => c.estado === 'pendiente');
-                          const totalPend = cuotasPend.reduce((s: number, c: any) => s + c.monto, 0);
-                          const proxVenc = cuotasPend.sort((a: any, b: any) => a.fecha_vencimiento?.localeCompare(b.fecha_vencimiento))[0];
-                          const dias = proxVenc ? diasHastaVencimiento(proxVenc.fecha_vencimiento) : null;
-                          return (
-                            <tr key={i} className={typeof dias === 'number' && dias <= 7 ? 'bg-red-50/50 dark:bg-red-900/10' : ''}>
-                              <td className="table-cell font-mono text-xs font-bold">{p.numero}</td>
-                              <td className="table-cell">{p.proveedores?.nombre || '—'}</td>
-                              <td className="table-cell text-xs">{formatDate(p.fecha)}</td>
-                              <td className="table-cell font-semibold">{formatCurrency(p.total)}</td>
-                              <td className="table-cell">
-                                <div className="text-xs space-y-0.5">
-                                  <span className="font-bold text-red-600">{formatCurrency(totalPend)}</span>
-                                  {proxVenc && <span className="block text-gray-400">Próx. vto: {formatDate(proxVenc.fecha_vencimiento)} {typeof dias === 'number' ? `(${dias}d)` : ''}</span>}
-                                </div>
-                              </td>
+                  <>
+                    <div className="flex gap-3 flex-wrap">
+                      <div className="card p-4 flex-1 min-w-[160px]">
+                        <p className="text-xs text-gray-500">Saldo a pagar</p>
+                        <p className="text-xl font-bold text-red-500">{formatMontoMoneda(pagarData.filter(p => (p.moneda || 'GS') !== 'USD').reduce((s, p) => s + Number(p.saldo_pendiente), 0), 'GS')}</p>
+                        {pagarData.some(p => p.moneda === 'USD') && <p className="text-xl font-bold text-red-500">{formatMontoMoneda(pagarData.filter(p => p.moneda === 'USD').reduce((s, p) => s + Number(p.saldo_pendiente), 0), 'USD')}</p>}
+                      </div>
+                      {pagarNc.length > 0 && (
+                        <div className="card p-4 flex-1 min-w-[160px]">
+                          <p className="text-xs text-gray-500">NC a favor sin aplicar</p>
+                          {['GS', 'USD'].map(m => {
+                            const t = pagarNc.filter(n => n.moneda === m).reduce((s, n) => s + Number(n.total) - Number(n.monto_aplicado), 0);
+                            return t > 0 ? <p key={m} className="text-xl font-bold text-emerald-600">{formatMontoMoneda(t, m)}</p> : null;
+                          })}
+                        </div>
+                      )}
+                    </div>
+                    {pagarData.length > 0 && (
+                      <div className="card overflow-x-auto">
+                        <table className="w-full">
+                          <thead className="bg-gray-50 dark:bg-gray-800/50">
+                            <tr>
+                              <th className="table-header">Compra</th>
+                              <th className="table-header">Proveedor</th>
+                              <th className="table-header">Fecha</th>
+                              <th className="table-header">Moneda</th>
+                              <th className="table-header text-right">Total factura</th>
+                              <th className="table-header text-right">Pagado</th>
+                              <th className="table-header text-right">Saldo</th>
+                              <th className="table-header">Cuotas</th>
                             </tr>
-                          );
-                        })}
-                      </tbody>
-                    </table>
-                  </div>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100 dark:divide-gray-700">
+                            {pagarData.map((p, i) => {
+                              const mon = p.moneda || 'GS';
+                              const cuotas = (p.compra_cuotas || []).slice().sort((a: any, b: any) => a.numero_cuota - b.numero_cuota);
+                              const vencida = cuotas.some((c: any) => estadoEfectivoCuota(c) === 'vencida');
+                              return (
+                                <tr key={i} className={vencida ? 'bg-red-50/50 dark:bg-red-900/10' : ''}>
+                                  <td className="table-cell font-mono text-xs font-bold">{p.numero}{p.numero_factura && <div className="font-normal text-gray-400">{p.numero_factura}</div>}</td>
+                                  <td className="table-cell">{p.proveedores?.nombre || '—'}</td>
+                                  <td className="table-cell text-xs">{formatDate(p.fecha)}</td>
+                                  <td className="table-cell text-xs">{mon}</td>
+                                  <td className="table-cell text-right font-semibold">{formatMontoMoneda(p.total, mon)}</td>
+                                  <td className="table-cell text-right text-emerald-600">{formatMontoMoneda(roundMoneda(Number(p.total) - Number(p.saldo_pendiente), mon), mon)}</td>
+                                  <td className="table-cell text-right font-bold text-red-600">{formatMontoMoneda(p.saldo_pendiente, mon)}</td>
+                                  <td className="table-cell">
+                                    {cuotas.length === 0 ? <span className="text-xs text-gray-400">Sin cuotas</span> : (
+                                      <div className="text-xs space-y-0.5">
+                                        {cuotas.map((c: any) => {
+                                          const est = estadoEfectivoCuota(c);
+                                          return (
+                                            <div key={c.numero_cuota} className="flex items-center gap-2">
+                                              <span>#{c.numero_cuota} · {formatDate(c.fecha_vencimiento)} · {formatMontoMoneda(c.monto, mon)}</span>
+                                              <span className={`badge ${est === 'pagada' ? 'bg-emerald-100 text-emerald-700' : est === 'vencida' ? 'bg-red-100 text-red-700' : est === 'anulada' ? 'bg-gray-100 text-gray-500' : 'bg-yellow-100 text-yellow-700'}`}>{est}</span>
+                                            </div>
+                                          );
+                                        })}
+                                      </div>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             )}
@@ -659,15 +729,15 @@ export default function ReportesPage() {
                     <div className="flex gap-3 flex-wrap">
                       <div className="card p-4 flex-1 min-w-[160px]">
                         <p className="text-xs text-gray-500">Total a pagar</p>
-                        <p className="text-2xl font-bold text-red-500">{formatCurrency(gastosUnificadosData.reduce((s, r) => s + (r.saldo_pendiente || r.monto || 0), 0))}</p>
+                        <p className="text-2xl font-bold text-red-500">{totalesPorMoneda(gastosUnificadosData)}</p>
                       </div>
                       <div className="card p-4 flex-1 min-w-[160px]">
                         <p className="text-xs text-gray-500">Compras</p>
-                        <p className="text-xl font-bold text-orange-500">{formatCurrency(gastosUnificadosData.filter(r => r.origen === 'Compra').reduce((s, r) => s + (r.saldo_pendiente || 0), 0))}</p>
+                        <p className="text-xl font-bold text-orange-500">{totalesPorMoneda(gastosUnificadosData.filter(r => r.origen === 'Compra'))}</p>
                       </div>
                       <div className="card p-4 flex-1 min-w-[160px]">
                         <p className="text-xs text-gray-500">Gastos</p>
-                        <p className="text-xl font-bold text-purple-500">{formatCurrency(gastosUnificadosData.filter(r => r.origen === 'Gasto').reduce((s, r) => s + (r.saldo_pendiente || r.monto || 0), 0))}</p>
+                        <p className="text-xl font-bold text-purple-500">{totalesPorMoneda(gastosUnificadosData.filter(r => r.origen === 'Gasto'))}</p>
                       </div>
                     </div>
                     <div className="card overflow-hidden">
@@ -695,7 +765,7 @@ export default function ReportesPage() {
                                 </td>
                                 <td className="table-cell font-medium text-sm">{r.titulo}</td>
                                 <td className="table-cell text-sm text-gray-500">{r.proveedor}</td>
-                                <td className="table-cell text-xs text-gray-400">{r.categoria}</td>
+                                <td className="table-cell text-xs text-gray-400">{r.categoria}{r.tipo_servicio && <div>{r.tipo_servicio}{r.detalle_servicio ? ` · ${r.detalle_servicio}` : ''}</div>}</td>
                                 <td className="table-cell text-xs">{formatDate(r.fecha)}</td>
                                 <td className="table-cell font-semibold">{formatMonto(r.monto, r.moneda || 'GS')} <span className="text-[10px] text-gray-400">{r.moneda || 'GS'}</span></td>
                                 <td className="table-cell font-bold text-red-500">{formatMonto(r.saldo_pendiente ?? r.monto, r.moneda || 'GS')}</td>

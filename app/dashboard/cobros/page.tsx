@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatCurrency, formatDate, getErrorMessage, isSchemaCacheMissing, toDigitsOnly, toInteger } from '@/lib/utils';
+import { formatCurrency, formatDate, getErrorMessage, isSchemaCacheMissing, toDigitsOnly, toInteger, roundTo } from '@/lib/utils';
 import { Plus, Search, Eye, X, Loader2, Handshake, Trash2 } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -119,13 +119,21 @@ export default function CobrosPage() {
     setFormHeader(f => ({ ...f, proveedor_id: proveedorId }));
     setGastosSelec([]);
     if (!proveedorId) { setGastosPendientes([]); return; }
-    const { data, error } = await supabase.from('gastos')
-      .select('id, categoria, titulo, monto, saldo_pendiente, fecha')
+    const result = await supabase.from('gastos')
+      .select('id, categoria, titulo, monto, saldo_pendiente, fecha, en_cuotas')
       .eq('proveedor_id', proveedorId)
       .eq('condicion', 'credito')
       .in('estado', ['pendiente', 'parcial'])
       .gt('saldo_pendiente', 0)
       .order('fecha');
+    let data: Partial<Gasto>[] | null = result.data;
+    let error = result.error;
+    if (error && isSchemaCacheMissing(error, ['en_cuotas'])) {
+      ({ data, error } = await supabase.from('gastos')
+        .select('id, categoria, titulo, monto, saldo_pendiente, fecha')
+        .eq('proveedor_id', proveedorId).eq('condicion', 'credito')
+        .in('estado', ['pendiente', 'parcial']).gt('saldo_pendiente', 0).order('fecha'));
+    }
     if (error) {
       if (isSchemaCacheMissing(error, ['gastos', 'estado', 'saldo_pendiente', 'condicion'])) {
         toast.error('La base aún no tiene habilitados los gastos a crédito. Ejecute las migraciones pendientes para habilitar esta funcionalidad.');
@@ -136,7 +144,7 @@ export default function CobrosPage() {
       setGastosPendientes([]);
       return;
     }
-    setGastosPendientes(data as Gasto[] || []);
+    setGastosPendientes(((data || []) as Gasto[]).filter(g => !g.en_cuotas));
   }
 
   function agregarFactura(venta: Venta) {
@@ -153,10 +161,10 @@ export default function CobrosPage() {
     setGastosSelec(prev => [...prev, {
       gasto_id: gasto.id,
       categoria: gasto.categoria || gasto.titulo,
-      monto: toInteger(gasto.monto, 0),
-      saldo_pendiente: toInteger(gasto.saldo_pendiente || gasto.monto, 0),
+      monto: roundTo(Number(gasto.monto) || 0, 2),
+      saldo_pendiente: roundTo(Number(gasto.saldo_pendiente || gasto.monto) || 0, 2),
       fecha: gasto.fecha,
-      monto_aplicado: toInteger(gasto.saldo_pendiente || gasto.monto, 0),
+      monto_aplicado: roundTo(Number(gasto.saldo_pendiente || gasto.monto) || 0, 2),
     }]);
   }
 
@@ -234,7 +242,12 @@ export default function CobrosPage() {
         await supabase.from('cobro_facturas').insert(facturasSelec.map(f => ({ cobro_id: cobro.id, venta_id: f.venta_id, monto_aplicado: f.monto_aplicado })));
       }
       if (formHeader.tipo_referencia === 'gastos' && gastosSelec.length > 0) {
-        await supabase.from('cobro_gastos').insert(gastosSelec.map(g => ({ cobro_id: cobro.id, gasto_id: g.gasto_id, monto_aplicado: g.monto_aplicado })));
+        const { error: gastosError } = await supabase.from('cobro_gastos').insert(gastosSelec.map(g => ({ cobro_id: cobro.id, gasto_id: g.gasto_id, monto_aplicado: g.monto_aplicado })));
+        if (gastosError) {
+          const { error: cleanupError } = await supabase.from('cobros').delete().eq('id', cobro.id);
+          if (cleanupError) throw new Error(`${getErrorMessage(gastosError)}. No se pudo eliminar el cobro incompleto: ${getErrorMessage(cleanupError)}`);
+          throw gastosError;
+        }
       }
       if (retenciones.length > 0) await supabase.from('cobro_retenciones').insert(retenciones.map(r => ({ cobro_id: cobro.id, ...r, numero_retencion: toDigitsOnly(r.numero_retencion) || null })));
 
@@ -504,6 +517,7 @@ export default function CobrosPage() {
                 <h3 className="font-semibold text-sm mb-2">
                   {formHeader.tipo_referencia === 'clientes' ? 'Facturas a cobrar' : 'Gastos a cobrar'}
                 </h3>
+                {formHeader.tipo_referencia === 'gastos' && <p className="mb-2 text-xs text-gray-500">Los gastos en cuotas se pagan desde la ficha del gasto.</p>}
                 {formHeader.tipo_referencia === 'clientes' && facturasPendientes.length > 0 && (
                   <div className="mb-3 border rounded-lg overflow-hidden">
                     <table className="w-full text-xs">
@@ -584,8 +598,8 @@ export default function CobrosPage() {
                         <span className="text-gray-500 text-xs w-20 shrink-0">Saldo: {formatCurrency(g.saldo_pendiente)}</span>
                         <div className="flex items-center gap-1 flex-1">
                           <label className="text-xs text-gray-500 shrink-0">Monto a aplicar:</label>
-                          <input type="number" min="0" step="1" inputMode="numeric" className="input py-1 text-sm max-w-[140px]" value={g.monto_aplicado}
-                           onChange={e => updateGastoMonto(g.gasto_id, toInteger(e.target.value, 0))} />
+                          <input type="number" min="0" step="any" inputMode="decimal" className="input py-1 text-sm max-w-[140px]" value={g.monto_aplicado}
+                           onChange={e => updateGastoMonto(g.gasto_id, roundTo(Math.max(0, parseFloat(e.target.value) || 0), 2))} />
                         </div>
                         <button onClick={() => setGastosSelec(prev => prev.filter(x => x.gasto_id !== g.gasto_id))} className="text-red-400 hover:text-red-600"><Trash2 className="w-3.5 h-3.5" /></button>
                       </div>
