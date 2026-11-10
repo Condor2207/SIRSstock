@@ -285,3 +285,133 @@ export function formatMonto(amount: number, moneda: 'GS' | 'USD' | string = 'GS'
   }
   return formatCurrency(amount);
 }
+
+// ============================================================
+// Decimales, monedas y tipo de control (compras, gastos, NC, stock)
+// Configuración de decimales del sistema:
+//   cantidades: hasta 3 decimales | GS: 0 decimales | USD: 2 decimales
+// ============================================================
+export type Moneda = 'GS' | 'USD';
+export const DECIMALES_CANTIDAD = 3;
+export const DECIMALES_TIPO_CAMBIO = 4;
+
+export function decimalesMoneda(moneda: string | null | undefined): number {
+  return moneda === 'USD' ? 2 : 0;
+}
+
+// Redondeo decimal sin errores de punto flotante (12.345 -> 12.35)
+export function roundTo(value: number, decimals: number): number {
+  if (!Number.isFinite(value)) return 0;
+  const factor = 10 ** decimals;
+  const sign = value < 0 ? -1 : 1;
+  return (sign * Math.round(Number((Math.abs(value) * factor).toPrecision(15)))) / factor;
+}
+
+export function roundMoneda(value: number, moneda: string | null | undefined): number {
+  return roundTo(value, decimalesMoneda(moneda));
+}
+
+// Sanitiza lo que escribe el usuario: solo dígitos y un separador decimal (coma o punto).
+// Devuelve texto con punto decimal y limita la cantidad de decimales. Nunca admite negativos.
+export function sanitizeDecimalInput(value: string, maxDecimals: number): string {
+  const raw = String(value ?? '').replace(',', '.').replace(/[^\d.]/g, '');
+  const [intPart, ...rest] = raw.split('.');
+  if (maxDecimals <= 0 || rest.length === 0) return intPart;
+  return `${intPart}.${rest.join('').slice(0, maxDecimals)}`;
+}
+
+// Convierte el texto del input a número (0 si está vacío o es inválido)
+export function parseDecimal(value: string | number | null | undefined): number {
+  if (typeof value === 'number') return Number.isFinite(value) ? value : 0;
+  const normalized = String(value ?? '').trim().replace(',', '.');
+  if (!normalized || !/^\d*\.?\d*$/.test(normalized)) return 0;
+  const n = Number(normalized);
+  return Number.isFinite(n) ? n : 0;
+}
+
+// Número -> texto editable (sin ceros sobrantes)
+export function decimalToInput(value: number | string | null | undefined, maxDecimals: number): string {
+  const n = parseDecimal(value as any);
+  if (!n) return '';
+  return String(roundTo(n, maxDecimals));
+}
+
+export function formatCantidad(value: number | string | null | undefined): string {
+  return new Intl.NumberFormat('es-PY', { minimumFractionDigits: 0, maximumFractionDigits: DECIMALES_CANTIDAD }).format(Number(value) || 0);
+}
+
+// Monto con símbolo de moneda; USD siempre con 2 decimales
+export function formatMontoMoneda(amount: number | string | null | undefined, moneda: string | null | undefined = 'GS'): string {
+  const n = Number(amount) || 0;
+  return moneda === 'USD'
+    ? new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 }).format(n)
+    : formatCurrency(n);
+}
+
+export function codigoMoneda(moneda: string | null | undefined): string {
+  return moneda === 'USD' ? 'USD' : 'GS';
+}
+
+// IVA incluido en un importe bruto (tasa 10/5/0)
+export function ivaIncluido(importeConIva: number, tasa: number, moneda: string | null | undefined): number {
+  if (!tasa || tasa <= 0) return 0;
+  return roundTo(importeConIva * tasa / (100 + tasa), moneda === 'USD' ? 4 : 2);
+}
+
+// Tipo de control de lote / vencimiento
+export type TipoControl = 'lote_vencimiento' | 'solo_lote' | 'solo_vencimiento' | 'generico';
+export const TIPOS_CONTROL: { value: TipoControl; label: string }[] = [
+  { value: 'lote_vencimiento', label: 'Con lote y vencimiento' },
+  { value: 'solo_lote', label: 'Solo lote' },
+  { value: 'solo_vencimiento', label: 'Solo vencimiento' },
+  { value: 'generico', label: 'Genérico / sin lote ni vencimiento' },
+];
+export function labelTipoControl(tipo?: string | null): string {
+  return TIPOS_CONTROL.find(t => t.value === tipo)?.label || TIPOS_CONTROL[3].label;
+}
+export function requiereLote(tipo: TipoControl): boolean { return tipo === 'lote_vencimiento' || tipo === 'solo_lote'; }
+export function requiereVencimiento(tipo: TipoControl): boolean { return tipo === 'lote_vencimiento' || tipo === 'solo_vencimiento'; }
+// Tipo por defecto de un producto (compatibilidad con control_lote anterior)
+export function tipoControlDeProducto(p: { tipo_control?: string | null; control_lote?: boolean | null }): TipoControl {
+  if (p.tipo_control && TIPOS_CONTROL.some(t => t.value === p.tipo_control) && (p.tipo_control !== 'generico' || !p.control_lote)) {
+    return p.tipo_control as TipoControl;
+  }
+  return p.control_lote ? 'lote_vencimiento' : 'generico';
+}
+// Lote automático para productos que solo controlan vencimiento (la tabla lotes exige número)
+export function loteAutomaticoPorVencimiento(fecha: string): string {
+  return `VTO-${(fecha || '').replace(/-/g, '')}`;
+}
+
+// Estados
+export type EstadoCuota = 'pendiente' | 'pagada' | 'vencida' | 'anulada';
+export function estadoEfectivoCuota(c: { estado: string; fecha_vencimiento: string }): EstadoCuota {
+  if (c.estado === 'pendiente' && c.fecha_vencimiento && diasHastaVencimiento(c.fecha_vencimiento) < 0) return 'vencida';
+  return c.estado as EstadoCuota;
+}
+
+export const MOTIVOS_NC: { value: string; label: string }[] = [
+  { value: 'devolucion', label: 'Devolución de mercadería' },
+  { value: 'descuento', label: 'Descuento' },
+  { value: 'error_facturacion', label: 'Error de facturación' },
+  { value: 'ajuste', label: 'Ajuste' },
+  { value: 'otro', label: 'Otro' },
+];
+
+// Genera plan de cuotas con decimales según moneda; la última cuota absorbe el resto del redondeo
+export function generarPlanCuotas(total: number, cantidad: number, primeraFecha: string, intervaloDias: number, moneda: string) {
+  const n = Math.max(1, Math.floor(cantidad) || 1);
+  const dec = decimalesMoneda(moneda);
+  const base = roundTo(total / n, dec);
+  const start = parseISO(primeraFecha);
+  return Array.from({ length: n }, (_, i) => {
+    const f = new Date(start);
+    f.setDate(f.getDate() + intervaloDias * i);
+    const monto = i === n - 1 ? roundTo(total - base * (n - 1), dec) : base;
+    return { numero_cuota: i + 1, fecha_vencimiento: format(f, 'yyyy-MM-dd'), monto };
+  });
+}
+
+export function hoyISO(): string {
+  return format(new Date(), 'yyyy-MM-dd');
+}

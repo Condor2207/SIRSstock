@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { formatDate, estadoVencimiento, formatNumber, toInteger, toIntegerInput } from '@/lib/utils';
+import { formatDate, estadoVencimiento, formatCantidad, sanitizeDecimalInput, parseDecimal, DECIMALES_CANTIDAD, labelTipoControl, tipoControlDeProducto, getErrorMessage } from '@/lib/utils';
+import { moverStock } from '@/lib/stock';
 import { Search, Plus, Boxes, AlertTriangle, X, Loader2, Filter } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -19,6 +20,8 @@ interface StockRow {
   stockTotal: number;
   stockMinimo: number;
   controlLote: boolean;
+  tipoControl: string;
+  permiteDecimales: boolean;
   lotes: Array<{
     id: string;
     numero_lote: string;
@@ -37,17 +40,25 @@ export default function StockPage() {
   const [filtro, setFiltro] = useState<Filtro>('todos');
   const [showAjuste, setShowAjuste] = useState(false);
   const [ajusteForm, setAjusteForm] = useState({ producto_id: '', lote_id: '', cantidad: '', tipo: 'entrada', notas: '' });
-  const [productos, setProductos] = useState<Array<{ id: string; nombre: string; sku: string; control_lote: boolean }>>([]);
+  const [productos, setProductos] = useState<Array<{ id: string; nombre: string; sku: string; control_lote: boolean; permite_decimales: boolean }>>([]);
   const [lotesDelProducto, setLotesDelProducto] = useState<Array<{ id: string; numero_lote: string }>>([]);
   const [saving, setSaving] = useState(false);
 
   const loadStock = useCallback(async () => {
     setLoading(true);
-    const { data: prods } = await supabase
+    let { data: prods, error: prodErr } = await supabase
       .from('productos')
-      .select('id, sku, nombre, unidad_medida, stock_actual, stock_minimo, control_lote, activo, categoria:categorias(nombre)')
+      .select('id, sku, nombre, unidad_medida, stock_actual, stock_minimo, control_lote, tipo_control, permite_decimales, activo, categoria:categorias(nombre)')
       .eq('activo', true)
       .order('nombre');
+    if (prodErr) {
+      const legacy = await supabase
+        .from('productos')
+        .select('id, sku, nombre, unidad_medida, stock_actual, stock_minimo, control_lote, activo, categoria:categorias(nombre)')
+        .eq('activo', true)
+        .order('nombre');
+      prods = legacy.data as any;
+    }
 
     const { data: lotes } = await supabase
       .from('lotes')
@@ -67,6 +78,8 @@ export default function StockPage() {
         stockTotal: p.stock_actual,
         stockMinimo: p.stock_minimo,
         controlLote: p.control_lote,
+        tipoControl: tipoControlDeProducto(p),
+        permiteDecimales: p.permite_decimales !== false,
         lotes: [],
       };
     });
@@ -76,7 +89,7 @@ export default function StockPage() {
       }
     });
     setRows(Object.values(rowsMap));
-    setProductos((prods || []).map((p: any) => ({ id: p.id, nombre: p.nombre, sku: p.sku, control_lote: p.control_lote })));
+    setProductos((prods || []).map((p: any) => ({ id: p.id, nombre: p.nombre, sku: p.sku, control_lote: p.control_lote, permite_decimales: p.permite_decimales !== false })));
     setLoading(false);
   }, []);
 
@@ -89,35 +102,20 @@ export default function StockPage() {
 
   async function handleAjuste() {
     if (!ajusteForm.producto_id || !ajusteForm.cantidad) { toast.error('Completá los campos requeridos'); return; }
-    const cant = toInteger(ajusteForm.cantidad, 0);
-    if (!Number.isInteger(cant) || cant <= 0) { toast.error('La cantidad debe ser un número entero mayor a 0'); return; }
+    const prodSel = productos.find(p => p.id === ajusteForm.producto_id);
+    const cant = parseDecimal(ajusteForm.cantidad);
+    if (!(cant > 0)) { toast.error('La cantidad debe ser un número mayor a 0'); return; }
+    if (prodSel && !prodSel.permite_decimales && !Number.isInteger(cant)) { toast.error('Este producto no admite cantidades decimales'); return; }
     setSaving(true);
     try {
-      // Registrar movimiento
-      await supabase.from('movimientos_stock').insert({
-        producto_id: ajusteForm.producto_id,
-        lote_id: ajusteForm.lote_id || null,
-        tipo: ajusteForm.tipo,
-        cantidad: ajusteForm.tipo === 'salida' ? -cant : cant,
-        referencia_tipo: 'ajuste',
+      await moverStock(supabase, {
+        productoId: ajusteForm.producto_id,
+        delta: ajusteForm.tipo === 'salida' ? -cant : cant,
+        tipo: ajusteForm.tipo as 'entrada' | 'salida' | 'ajuste',
+        referenciaTipo: 'ajuste',
         notas: ajusteForm.notas || null,
+        loteId: ajusteForm.lote_id || null,
       });
-
-      // Actualizar stock del producto
-      const prod = rows.find(r => r.productoId === ajusteForm.producto_id);
-      if (prod) {
-        const nuevoStock = ajusteForm.tipo === 'salida' ? prod.stockTotal - cant : prod.stockTotal + cant;
-        await supabase.from('productos').update({ stock_actual: nuevoStock }).eq('id', ajusteForm.producto_id);
-      }
-
-      // Actualizar stock del lote si aplica
-      if (ajusteForm.lote_id) {
-        const lote = prod?.lotes.find(l => l.id === ajusteForm.lote_id);
-        if (lote) {
-          const nuevoLote = ajusteForm.tipo === 'salida' ? lote.stock_actual - cant : lote.stock_actual + cant;
-          await supabase.from('lotes').update({ stock_actual: nuevoLote }).eq('id', ajusteForm.lote_id);
-        }
-      }
 
       const producto = productos.find(p => p.id === ajusteForm.producto_id);
       await logAudit(supabase, {
@@ -131,7 +129,7 @@ export default function StockPage() {
       setAjusteForm({ producto_id: '', lote_id: '', cantidad: '', tipo: 'entrada', notas: '' });
       loadStock();
     } catch (e: any) {
-      toast.error(e.message || 'Error al ajustar stock');
+      toast.error(getErrorMessage(e) || 'Error al ajustar stock');
     } finally {
       setSaving(false);
     }
@@ -144,7 +142,7 @@ export default function StockPage() {
     if (!matchSearch) return false;
     if (filtro === 'bajo') return r.stockTotal <= r.stockMinimo;
     if (filtro === 'vencimiento') return r.lotes.some(l => l.fecha_vencimiento && l.fecha_vencimiento <= in30);
-    if (filtro === 'sin-lote') return r.controlLote && r.lotes.length === 0;
+    if (filtro === 'sin-lote') return r.tipoControl !== 'generico' && r.lotes.length === 0;
     return true;
   }).map(r => ({ ...r, lotesCount: r.lotes.length, stockEstado: r.stockTotal <= r.stockMinimo && r.stockMinimo > 0 ? 'bajo' : 'ok' }));
   const { sorted: filteredSorted, sortKey, sortDir, handleSort } = useSort(filteredRaw as any[]);
@@ -202,16 +200,16 @@ export default function StockPage() {
                           <td className="table-cell text-gray-500 text-xs">{r.categoria}</td>
                           <td className="table-cell">
                             <div className="flex items-center gap-2">
-                              <span className={`font-bold text-base ${stockBajo ? 'text-red-500' : 'text-emerald-600'}`}>{formatNumber(r.stockTotal, 0)}</span>
+                              <span className={`font-bold text-base ${stockBajo ? 'text-red-500' : 'text-emerald-600'}`}>{formatCantidad(r.stockTotal)}</span>
                               <span className="text-xs text-gray-400">{r.unidad}</span>
                               {stockBajo && <span title="Stock bajo mínimo"><AlertTriangle className="w-4 h-4 text-yellow-500" /></span>}
                             </div>
-                            <div className="text-xs text-gray-400">mín: {formatNumber(r.stockMinimo, 0)}</div>
+                            <div className="text-xs text-gray-400">mín: {formatCantidad(r.stockMinimo)}</div>
                           </td>
                           <td className="table-cell">
-                            {r.controlLote ? (
+                            {r.tipoControl !== 'generico' ? (
                               r.lotes.length === 0 ? (
-                                <span className="text-gray-400 text-xs">Sin lotes</span>
+                                <span className="text-gray-400 text-xs">{labelTipoControl(r.tipoControl)} · sin lotes</span>
                               ) : (
                                 <div className="space-y-1">
                                   {r.lotes.map((l: any) => {
@@ -219,7 +217,7 @@ export default function StockPage() {
                                     return (
                                       <div key={l.id} className="flex items-center gap-2 text-xs">
                                         <span className="font-mono bg-gray-100 dark:bg-gray-700 px-1.5 py-0.5 rounded">{l.numero_lote}</span>
-                                        <span className="text-gray-500">{formatNumber(l.stock_actual, 0)}</span>
+                                        <span className="text-gray-500">{formatCantidad(l.stock_actual)}</span>
                                         <span className={ev.color + ' font-medium'}>{ev.label}</span>
                                       </div>
                                     );
@@ -227,7 +225,7 @@ export default function StockPage() {
                                 </div>
                               )
                             ) : (
-                              <span className="text-xs text-gray-400">Sin control de lote</span>
+                              <span className="text-xs text-gray-400">{labelTipoControl('generico')}</span>
                             )}
                           </td>
                           <td className="table-cell">
@@ -287,7 +285,7 @@ export default function StockPage() {
               )}
               <div>
                 <label className="label">Cantidad *</label>
-                <input type="number" min="1" step="1" inputMode="numeric" className="input" value={ajusteForm.cantidad} onChange={e => setAjusteForm(f => ({ ...f, cantidad: toIntegerInput(e.target.value) }))} />
+                <input type="text" inputMode="decimal" className="input" placeholder="0" value={ajusteForm.cantidad} onChange={e => setAjusteForm(f => ({ ...f, cantidad: sanitizeDecimalInput(e.target.value, productos.find(p => p.id === f.producto_id)?.permite_decimales === false ? 0 : DECIMALES_CANTIDAD) }))} />
               </div>
               <div>
                 <label className="label">Observaciones</label>

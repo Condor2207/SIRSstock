@@ -4,7 +4,8 @@ import { useEffect, useState, useCallback } from 'react';
 import { Header } from '@/components/Header';
 import { createClient } from '@/lib/supabase';
 import { logAudit } from '@/lib/audit';
-import { ean13Svg, escapeHtml, esEan13Valido, generarEan13, formatCurrency, formatMonto, getDeleteErrorMessage, getErrorMessage, isSchemaCacheMissing, toInteger, toIntegerInput } from '@/lib/utils';
+import { ean13Svg, escapeHtml, esEan13Valido, generarEan13, formatCurrency, formatMonto, getDeleteErrorMessage, getErrorMessage, isSchemaCacheMissing, toInteger, toIntegerInput, TIPOS_CONTROL, tipoControlDeProducto } from '@/lib/utils';
+import type { TipoControl } from '@/lib/utils';
 import { Plus, Search, Edit2, Trash2, X, Loader2, Package, ToggleLeft, ToggleRight, Copy, Printer, RefreshCw } from 'lucide-react';
 import toast from 'react-hot-toast';
 import { SearchSelect } from '@/components/SearchSelect';
@@ -42,7 +43,7 @@ export default function ProductosPage() {
   const [form, setForm] = useState({
     sku: '', nombre: '', descripcion: '', categoria_id: '',
     unidad_medida: '', moneda_venta: 'PYG', precio_venta: '', precio_compra: '',
-    stock_minimo: '', control_lote: false,
+    stock_minimo: '', control_lote: false, tipo_control: 'generico' as TipoControl, permite_decimales: true,
     clasificacion_id: '', codigo_barras: '',
     marca_id: '', linea_id: '', grupo_id: '',
     tasa_iva_id: '', es_exportacion: false, es_servicio: false,
@@ -88,7 +89,7 @@ export default function ProductosPage() {
       sku: p.sku, nombre: p.nombre, descripcion: p.descripcion || '',
       categoria_id: p.categoria_id || '', unidad_medida: p.unidad_medida,
       moneda_venta: p.moneda_venta || 'PYG', precio_venta: String(toInteger(p.precio_venta, 0)), precio_compra: String(toInteger(p.precio_compra || 0, 0)),
-      stock_minimo: String(toInteger(p.stock_minimo || 0, 0)), control_lote: p.control_lote,
+      stock_minimo: String(toInteger(p.stock_minimo || 0, 0)), control_lote: p.control_lote, tipo_control: tipoControlDeProducto(p), permite_decimales: p.permite_decimales !== false,
       clasificacion_id: (p as any).clasificacion_id || '', codigo_barras: (p as any).codigo_barras || '',
       marca_id: (p as any).marca_id || '', linea_id: (p as any).linea_id || '', grupo_id: (p as any).grupo_id || '',
       tasa_iva_id: (p as any).tasa_iva_id || '', es_exportacion: (p as any).es_exportacion || false, es_servicio: (p as any).es_servicio || false,
@@ -115,7 +116,7 @@ export default function ProductosPage() {
 
   function openNew() {
     setEditando(null);
-    setForm({ sku: '', nombre: '', descripcion: '', categoria_id: '', unidad_medida: unidades[0]?.nombre || 'Unidad', moneda_venta: 'PYG', precio_venta: '', precio_compra: '', stock_minimo: '0', control_lote: false, clasificacion_id: '', codigo_barras: '', marca_id: '', linea_id: '', grupo_id: '', tasa_iva_id: '', es_exportacion: false, es_servicio: false, plazo_vencimiento_meses: '36', porcentaje_comision: '0' });
+    setForm({ sku: '', nombre: '', descripcion: '', categoria_id: '', unidad_medida: unidades[0]?.nombre || 'Unidad', moneda_venta: 'PYG', precio_venta: '', precio_compra: '', stock_minimo: '0', control_lote: false, tipo_control: 'generico', permite_decimales: true, clasificacion_id: '', codigo_barras: '', marca_id: '', linea_id: '', grupo_id: '', tasa_iva_id: '', es_exportacion: false, es_servicio: false, plazo_vencimiento_meses: '36', porcentaje_comision: '0' });
     setPreciosPorLista({});
     setFormExport({ nombre_en: '', descripcion_en: '', unidad_medida_en: '', precio_usd: '', codigo_barras_en: '', notas_en: '' });
     setTabModal('general');
@@ -172,7 +173,7 @@ export default function ProductosPage() {
       precio_venta: toInteger(form.precio_venta, 0),
       precio_compra: toInteger(form.precio_compra, 0),
       stock_minimo: toInteger(form.stock_minimo, 0),
-      control_lote: form.control_lote,
+      control_lote: form.tipo_control !== 'generico',
     };
     const payloadExtra: any = {
       clasificacion_id: form.clasificacion_id || null,
@@ -186,10 +187,12 @@ export default function ProductosPage() {
       es_exportacion: form.es_exportacion,
       plazo_vencimiento_meses: toInteger(form.plazo_vencimiento_meses, 36) || 36,
       porcentaje_comision: toInteger(form.porcentaje_comision, 0),
+      tipo_control: form.tipo_control,
+      permite_decimales: form.permite_decimales,
     };
     try {
       const payload = { ...payloadBase, ...payloadExtra };
-      const retryRefs = ['clasificacion_id', 'codigo_barras', 'marca_id', 'linea_id', 'grupo_id', 'tasa_iva_id', 'moneda_venta', 'es_exportacion', 'es_servicio', 'plazo_vencimiento_meses', 'porcentaje_comision'];
+      const retryRefs = ['clasificacion_id', 'codigo_barras', 'marca_id', 'linea_id', 'grupo_id', 'tasa_iva_id', 'moneda_venta', 'es_exportacion', 'es_servicio', 'plazo_vencimiento_meses', 'porcentaje_comision', 'tipo_control', 'permite_decimales'];
       let productoId = editando?.id;
       let auditAction: 'crear' | 'editar' = editando ? 'editar' : 'crear';
       if (editando) {
@@ -543,9 +546,15 @@ export default function ProductosPage() {
                   </div>
 
                   <div className="flex items-center gap-6 flex-wrap">
+                    <label className="flex items-center gap-2">
+                      <span className="text-sm text-gray-700 dark:text-gray-300">Tipo de control</span>
+                      <select className="input w-auto" value={form.tipo_control} onChange={e => { const v = e.target.value as TipoControl; setForm(f => ({ ...f, tipo_control: v, control_lote: v !== 'generico' })); }}>
+                        {TIPOS_CONTROL.map(t => <option key={t.value} value={t.value}>{t.label}</option>)}
+                      </select>
+                    </label>
                     <label className="flex items-center gap-2 cursor-pointer">
-                      <input type="checkbox" checked={form.control_lote} onChange={e => setForm(f => ({ ...f, control_lote: e.target.checked }))} className="w-4 h-4 accent-blue-600" />
-                      <span className="text-sm text-gray-700 dark:text-gray-300">Control por lote/vencimiento</span>
+                      <input type="checkbox" checked={form.permite_decimales} onChange={e => setForm(f => ({ ...f, permite_decimales: e.target.checked }))} className="w-4 h-4 accent-blue-600" />
+                      <span className="text-sm text-gray-700 dark:text-gray-300">Permite cantidades decimales</span>
                     </label>
                     <label className="flex items-center gap-2 cursor-pointer">
                       <input type="checkbox" checked={form.es_servicio} onChange={e => setForm(f => ({ ...f, es_servicio: e.target.checked }))} className="w-4 h-4 accent-blue-600" />
