@@ -1,4 +1,24 @@
 -- Cuotas y pagos de gastos. Los créditos históricos permanecen sin cambios.
+DO $$
+DECLARE
+  faltantes text;
+BEGIN
+  SELECT string_agg(nombre, ', ' ORDER BY nombre) INTO faltantes
+  FROM unnest(ARRAY[
+    'titulo', 'descripcion', 'proveedor_id', 'monto', 'fecha', 'medio_pago',
+    'categoria', 'referencia', 'condicion', 'fecha_vencimiento', 'tasa_iva_id',
+    'saldo_pendiente', 'estado', 'moneda', 'tipo_cambio', 'tipo_servicio',
+    'detalle_servicio', 'comprobante_url', 'comprobante_nombre'
+  ]) AS campos(nombre)
+  WHERE NOT EXISTS (
+    SELECT 1 FROM information_schema.columns
+    WHERE table_schema = 'public' AND table_name = 'gastos' AND column_name = campos.nombre
+  );
+  IF faltantes IS NOT NULL THEN
+    RAISE EXCEPTION 'Faltan columnas de gastos: %. Aplicá primero las migraciones anteriores de gastos (011 y 022).', faltantes;
+  END IF;
+END $$;
+
 ALTER TABLE gastos ADD COLUMN IF NOT EXISTS en_cuotas boolean NOT NULL DEFAULT false;
 
 CREATE TABLE IF NOT EXISTS gasto_cuotas (
@@ -145,9 +165,16 @@ BEGIN
   END IF;
   RETURN NEW;
 END $$;
-DROP TRIGGER IF EXISTS trg_impedir_cobro_gasto_cuotas ON cobro_gastos;
-CREATE TRIGGER trg_impedir_cobro_gasto_cuotas BEFORE INSERT OR UPDATE ON cobro_gastos
-  FOR EACH ROW EXECUTE FUNCTION impedir_cobro_gasto_cuotas();
+DO $$
+BEGIN
+  IF to_regclass('public.cobro_gastos') IS NOT NULL THEN
+    DROP TRIGGER IF EXISTS trg_impedir_cobro_gasto_cuotas ON public.cobro_gastos;
+    CREATE TRIGGER trg_impedir_cobro_gasto_cuotas BEFORE INSERT OR UPDATE ON public.cobro_gastos
+      FOR EACH ROW EXECUTE FUNCTION impedir_cobro_gasto_cuotas();
+  ELSE
+    RAISE NOTICE 'La tabla cobro_gastos no existe. Si la creás más adelante, volvé a ejecutar esta migración para instalar su protección.';
+  END IF;
+END $$;
 
 CREATE OR REPLACE FUNCTION proteger_plan_gasto() RETURNS trigger LANGUAGE plpgsql AS $$
 BEGIN

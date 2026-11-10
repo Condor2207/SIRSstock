@@ -32,6 +32,7 @@ Sistema full-stack de gestión comercial para empresas productoras y distribuido
    - La 022 agrega, entre otras, `compras.comprobante_nombre`, `gastos.tipo_servicio` y las tablas de NC recibidas.
    - La 023 crea las tablas de NC emitidas; la 024 agrega el registro y anulación transaccionales.
    - La 025 agrega cuotas y pagos de gastos. Los créditos históricos conservan su saldo y se siguen pagando en Cobros; los nuevos planes se pagan desde la ficha del gasto.
+   - Si la 025 informa que `cobro_gastos` no existe, los pagos en cuotas siguen disponibles desde Gastos. Aplicá las migraciones anteriores de Cobros y ejecutá nuevamente la 025 cuando crees esa tabla.
    - Si la API todavía indica que falta una columna o tabla después de aplicarlas, ejecutá `NOTIFY pgrst, 'reload schema';` en SQL Editor y recargá la página. Verificá que el proyecto Supabase sea el mismo configurado en la aplicación.
 4. Copiar URL y Anon Key desde **Settings → API**
 
